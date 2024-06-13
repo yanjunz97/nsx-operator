@@ -87,6 +87,9 @@ type Client struct {
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
+
+	// for load balancing
+	VirtualServerClient infra.LbVirtualServersClient
 }
 
 var (
@@ -167,6 +170,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	vpcSecurityClient := vpcs.NewSecurityPoliciesClient(restConnector(cluster))
 	vpcRuleClient := vpc_sp.NewRulesClient(restConnector(cluster))
 
+	virtualServerClient := infra.NewLbVirtualServersClient(restConnector(cluster))
+
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
@@ -211,6 +216,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		IPAllocationClient:  ipAllocationClient,
 		SubnetsClient:       subnetsClient,
 		RealizedStateClient: realizedStateClient,
+
+		VirtualServerClient: virtualServerClient
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
