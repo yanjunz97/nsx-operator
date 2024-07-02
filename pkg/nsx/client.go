@@ -20,6 +20,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
 	projects "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
 	infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
+	nsx_infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
 	nat "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
@@ -89,7 +90,7 @@ type Client struct {
 	NSXVerChecker NSXVersionChecker
 
 	// for load balancing
-	VirtualServerClient infra.LbVirtualServersClient
+	VirtualServerClient nsx_infra.LbVirtualServersClient
 }
 
 var (
