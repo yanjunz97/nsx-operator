@@ -1,18 +1,18 @@
 /* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0 */
 
-package l4
+package lbservice
 
 import (
 	"fmt"
 	"os"
 
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/loadbalancer"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
 type LbServiceInterface Interface {
-
+	GetLbVsByKey(id string) *model.LBService
 }
 
 // lbService implements LbServiceInterface.
