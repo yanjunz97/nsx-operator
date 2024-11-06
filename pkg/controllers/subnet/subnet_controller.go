@@ -213,11 +213,15 @@ func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
 
 func setSubnetReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
 	subnet := obj.(*v1alpha1.Subnet)
+	dhcpMode := subnet.Spec.SubnetDHCPConfig.Mode
+	if dhcpMode == "" {
+		dhcpMode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+	}
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionTrue,
-			Message:            "NSX Subnet has been successfully created/updated",
+			Message:            fmt.Sprintf("NSX Subnet with %s has been successfully created/updated", dhcpMode),
 			Reason:             "SubnetReady",
 			LastTransitionTime: transitionTime,
 		},

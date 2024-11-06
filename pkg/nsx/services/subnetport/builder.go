@@ -38,7 +38,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	case *v1alpha1.SubnetPort:
 		externalAddressBinding = service.buildExternalAddressBinding(o)
 	}
-	if nsxSubnet.DhcpConfig != nil && nsxSubnet.DhcpConfig.EnableDhcp != nil && *nsxSubnet.DhcpConfig.EnableDhcp {
+	if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != "DHCP_DEACTIVATED" {
 		allocateAddresses = "DHCP"
 	} else {
 		allocateAddresses = "BOTH"

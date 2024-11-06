@@ -30,6 +30,9 @@ const (
 	// SubnetDeletionTimeout requires a bigger value than defaultTimeout, it's because that it takes some time for NSX to
 	// recycle allocated IP addresses and NSX VPCSubnet won't be deleted until all IP addresses have been recycled.
 	SubnetDeletionTimeout = 600 * time.Second
+	orgId                 = "default"
+	projectId             = "project-quality"
+	vpcServiceProfileId   = "default"
 )
 
 func verifySubnetSetCR(subnetSet string) bool {
@@ -196,6 +199,12 @@ func UserSubnetSet(t *testing.T) {
 		"port-in-static-subnetset",
 		"port-in-dhcp-subnetset",
 	}
+	// Subnet with DHCP server requires dhcp_server_config defined in service profile
+	testData.nsxClient.VpcServiceProfilesClient.Update(orgId, projectId, vpcServiceProfileId, model.VpcServiceProfile{
+		DhcpConfig: &model.VpcProfileDhcpConfig{
+			DhcpServerConfig: &model.VpcDhcpServerConfig{},
+		},
+	})
 	for idx, subnetSetYAML := range subnetSetYAMLs {
 		subnetSetName := subnetSetNames[idx]
 		portYAML := portYAMLs[idx]

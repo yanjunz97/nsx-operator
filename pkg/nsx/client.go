@@ -78,6 +78,7 @@ type Client struct {
 	ProjectInfraClient             projects.InfraClient
 	VPCClient                      projects.VpcsClient
 	VPCConnectivityProfilesClient  projects.VpcConnectivityProfilesClient
+	VpcServiceProfilesClient       projects.VpcServiceProfilesClient
 	IPBlockClient                  project_infra.IpBlocksClient
 	StaticRouteClient              vpcs.StaticRoutesClient
 	NATRuleClient                  nat.NatRulesClient
@@ -172,6 +173,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	projectClient := orgs.NewProjectsClient(restConnector(cluster))
 	vpcClient := projects.NewVpcsClient(restConnector(cluster))
 	vpcConnectivityProfilesClient := projects.NewVpcConnectivityProfilesClient(restConnector(cluster))
+	vpcServiceProfilesClient := projects.NewVpcServiceProfilesClient(restConnector(cluster))
+
 	ipBlockClient := project_infra.NewIpBlocksClient(restConnector(cluster))
 	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
 	natRulesClient := nat.NewNatRulesClient(restConnector(cluster))
@@ -224,6 +227,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		ProjectInfraClient:             projectInfraClient,
 		VPCClient:                      vpcClient,
 		VPCConnectivityProfilesClient:  vpcConnectivityProfilesClient,
+		VpcServiceProfilesClient:       vpcServiceProfilesClient,
 		IPBlockClient:                  ipBlockClient,
 		StaticRouteClient:              staticRouteClient,
 		NATRuleClient:                  natRulesClient,
