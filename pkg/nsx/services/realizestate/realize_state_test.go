@@ -64,14 +64,14 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 		Steps:    6,
 	}
 	// default project
-	err := s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/subnets/subnet/ports/port", "RealizedLogicalPort")
+	err := s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/subnets/subnet/ports/port")
 
 	realizeStateError, ok := err.(*RealizeStateError)
 	assert.True(t, ok)
 	assert.Equal(t, realizeStateError.Error(), "RealizedLogicalPort realized with errors: [mocked error]")
 
 	// non default project
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port", "RealizedLogicalPort")
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port")
 
 	realizeStateError, ok = err.(*RealizeStateError)
 	assert.True(t, ok)

@@ -43,8 +43,7 @@ func IsRealizeStateError(err error) bool {
 
 // CheckRealizeState allows the caller to check realize status of entityType with retries.
 // backoff defines the maximum retries and the wait interval between two retries.
-func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, intentPath, entityType string) error {
-	// TODO， ask NSX if there were multiple realize states could we check only the latest one?
+func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, intentPath string) error {
 	return retry.OnError(backoff, func(err error) bool {
 		// Won't retry when realized state is `ERROR`.
 		return !IsRealizeStateError(err)
@@ -55,11 +54,12 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 			return err
 		}
 		for _, result := range results.Results {
-			if entityType != "" && result.EntityType != nil && *result.EntityType != entityType {
-				continue
+			var entityType string
+			if result.EntityType != nil {
+				entityType = *result.EntityType
 			}
 			if *result.State == model.GenericPolicyRealizedResource_STATE_REALIZED {
-				return nil
+				continue
 			}
 			if *result.State == model.GenericPolicyRealizedResource_STATE_ERROR {
 				var errMsg []string
@@ -70,7 +70,8 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 				}
 				return NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", entityType, errMsg))
 			}
+			return fmt.Errorf("%s not realized", entityType)
 		}
-		return fmt.Errorf("%s not realized", entityType)
+		return nil
 	})
 }
