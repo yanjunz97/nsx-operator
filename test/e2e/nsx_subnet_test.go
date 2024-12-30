@@ -29,9 +29,6 @@ const (
 	// subnetDeletionTimeout requires a bigger value than defaultTimeout, it's because that it takes some time for NSX to
 	// recycle allocated IP addresses and NSX VPCSubnet won't be deleted until all IP addresses have been recycled.
 	subnetDeletionTimeout = 600 * time.Second
-	orgId                 = "default"
-	projectId             = "project-quality"
-	vpcServiceProfileId   = "default"
 )
 
 func verifySubnetSetCR(subnetSet string) bool {
@@ -55,9 +52,6 @@ func verifySubnetSetCR(subnetSet string) bool {
 
 func TestSubnetSet(t *testing.T) {
 	setupTest(t, subnetTestNamespace)
-	if err := setServiceProfileDHCPConfig(); err != nil {
-		log.Error(err, "Failed to set DHCP config in Service Profile")
-	}
 	nsPath, _ := filepath.Abs("./manifest/testSubnet/shared_ns.yaml")
 	require.NoError(t, applyYAML(nsPath, ""))
 
@@ -73,20 +67,6 @@ func TestSubnetSet(t *testing.T) {
 	t.Run("case=UserSubnetSet", UserSubnetSet)
 	t.Run("case=SharedSubnetSet", sharedSubnetSet)
 	t.Run("case=SubnetCIDR", SubnetCIDR)
-}
-
-func setServiceProfileDHCPConfig() error {
-	// Subnet with DHCP server requires dhcp_server_config defined in service profile
-	_, err := testData.nsxClient.VpcServiceProfilesClient.Update(orgId, projectId, vpcServiceProfileId, model.VpcServiceProfile{
-		DhcpConfig: &model.VpcProfileDhcpConfig{
-			DhcpServerConfig: &model.VpcDhcpServerConfig{
-				AdvancedConfig: &model.VpcDhcpAdvancedConfig{
-					IsDistributedDhcp: common.Bool(false),
-				},
-			},
-		},
-	})
-	return err
 }
 
 func transSearchResponsetoSubnet(response model.SearchResponse) []model.VpcSubnet {
@@ -374,11 +354,7 @@ func SubnetCIDR(t *testing.T) {
 	// Change the DHCP mode from DHCPDeactived to DHCPServer
 	allocatedSubnet.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), allocatedSubnet, v1.UpdateOptions{})
-	// TODO expected, check error type
-	if err != nil {
-		log.Error(err, "Update Subnet error")
-		err = nil
-	}
+	require.Contains(t, err.Error(), "subnetDHCPConfig cannot switch from DHCPDeactivated to other modes")
 
 	// Delete the Subnet
 	err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), subnet.Name, v1.DeleteOptions{})
