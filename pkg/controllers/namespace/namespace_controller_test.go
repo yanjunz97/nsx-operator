@@ -5,6 +5,7 @@ package namespace
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -78,8 +79,11 @@ func TestGetDefaultNetworkConfigName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			patch := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (bool, *common.VPCNetworkConfigInfo) {
-				return tt.exist, tt.nc
+			patch := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (*common.VPCNetworkConfigInfo, error) {
+				if !tt.exist {
+					return tt.nc, fmt.Errorf("not found")
+				}
+				return tt.nc, nil
 			})
 			name, err := r.getDefaultNetworkConfigName()
 			assert.Equal(t, tt.expectName, name)
@@ -156,8 +160,8 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-ns"}},
 			patches: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// GetDefaultNetworkConfig
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (bool, *common.VPCNetworkConfigInfo) {
-					return true, &common.VPCNetworkConfigInfo{
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (*common.VPCNetworkConfigInfo, error) {
+					return &common.VPCNetworkConfigInfo{
 						IsDefault:              true,
 						Org:                    "",
 						Name:                   "fake-VPCNetworkConfig",
@@ -166,7 +170,7 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 						PrivateIPs:             nil,
 						DefaultSubnetSize:      0,
 						VPCPath:                "fake-patch",
-					}
+					}, nil
 				})
 				return patches
 			},
@@ -184,8 +188,8 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-ns"}},
 			patches: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// GetDefaultNetworkConfig
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (bool, *common.VPCNetworkConfigInfo) {
-					return true, &vpcInfo
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (*common.VPCNetworkConfigInfo, error) {
+					return &vpcInfo, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetVPCNetworkConfig", func(_ *vpc.VPCService, ncCRName string) (*common.VPCNetworkConfigInfo, bool, error) {
 					return &vpcInfo, true, nil

@@ -52,27 +52,23 @@ type VPCNetworkInfoStore struct {
 
 type VPCService struct {
 	common.Service
-	VpcStore               *VPCStore
-	LbsStore               *LBSStore
-	defaultNetworkConfigCR *common.VPCNetworkConfigInfo
+	VpcStore *VPCStore
+	LbsStore *LBSStore
 }
 
-func (s *VPCService) GetDefaultNetworkConfig() (bool, *common.VPCNetworkConfigInfo) {
-	if s.defaultNetworkConfigCR == nil {
-		return false, nil
-	}
-	return true, s.defaultNetworkConfigCR
-}
-
-func (s *VPCService) UpdateDefaultNetworkConfig(vpcNetworkConfig *v1alpha1.VPCNetworkConfiguration) error {
-	info, err := buildNetworkConfigInfo(vpcNetworkConfig)
+func (s *VPCService) GetDefaultNetworkConfig() (*common.VPCNetworkConfigInfo, error) {
+	vpcNetworkConfigList := &v1alpha1.VPCNetworkConfigurationList{}
+	err := s.Client.List(context.Background(), vpcNetworkConfigList)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if info.IsDefault {
-		s.defaultNetworkConfigCR = info
+
+	for _, vpcConfigCR := range vpcNetworkConfigList.Items {
+		if isDefaultNetworkConfigCR(&vpcConfigCR) {
+			return buildNetworkConfigInfo(&vpcConfigCR)
+		}
 	}
-	return nil
+	return nil, fmt.Errorf("failed to locate default network config")
 }
 
 func (s *VPCService) GetVPCNetworkConfig(ncCRName string) (*common.VPCNetworkConfigInfo, bool, error) {
@@ -597,10 +593,9 @@ func (s *VPCService) GetNetworkconfigNameFromAnnotation(ns string, annos map[str
 	}
 
 	if useDefault {
-		exist, nc := s.GetDefaultNetworkConfig()
-		if !exist {
-			err := errors.New("failed to locate default network config")
-			log.Error(err, "Can not find default network config from cache", "Namespace", ns)
+		nc, err := s.GetDefaultNetworkConfig()
+		if err != nil {
+			log.Error(err, "Can not find default network config", "Namespace", ns)
 			return "", err
 		}
 		return nc.Name, nil

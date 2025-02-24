@@ -37,9 +37,9 @@ func (m *MockVPCServiceProvider) GetVPCNetworkConfigByNamespace(ns string) (*com
 	return nil, nil
 }
 
-func (m *MockVPCServiceProvider) GetDefaultNetworkConfig() (bool, *common.VPCNetworkConfigInfo) {
+func (m *MockVPCServiceProvider) GetDefaultNetworkConfig() (*common.VPCNetworkConfigInfo, error) {
 	m.Called()
-	return false, nil
+	return nil, nil
 }
 
 func (m *MockVPCServiceProvider) ListVPCInfo(ns string) []common.VPCResourceInfo {

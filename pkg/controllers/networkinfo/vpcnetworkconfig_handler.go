@@ -37,14 +37,8 @@ type VPCNetworkConfigurationHandler struct {
 func (h *VPCNetworkConfigurationHandler) Create(ctx context.Context, e event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
 	vname := vpcConfigCR.GetName()
-	err := h.vpcService.UpdateDefaultNetworkConfig(vpcConfigCR)
-	if err != nil {
-		log.Error(err, "Failed to process network config update event")
-		return
-	}
-
 	// Update IPBlocks info
-	if err = h.ipBlocksInfoService.UpdateIPBlocksInfo(ctx, vpcConfigCR); err != nil {
+	if err := h.ipBlocksInfoService.UpdateIPBlocksInfo(ctx, vpcConfigCR); err != nil {
 		log.Error(err, "Failed to update the IPBlocksInfo", "VPCNetworkConfiguration", vname)
 	}
 }
@@ -79,11 +73,6 @@ func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.Upd
 		return
 	}
 
-	err := h.vpcService.UpdateDefaultNetworkConfig(newNc)
-	if err != nil {
-		log.Error(err, "Failed to process network config update event")
-		return
-	}
 	nss, err := h.vpcService.GetNamespacesByNetworkconfigName(newNc.Name)
 	if err != nil {
 		log.Error(err, "Failed to get Namespaces with network config", "VPCNetworkConfig", newNc.Name)

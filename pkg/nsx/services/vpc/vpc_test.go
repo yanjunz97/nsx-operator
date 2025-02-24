@@ -1257,6 +1257,7 @@ func TestVPCService_ListVPCInfo(t *testing.T) {
 					namespaceCR.Name = "test-ns"
 					return nil
 				})
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil)
 				return nil
 			},
 			expectedResults: []common.VPCResourceInfo{},
@@ -1364,18 +1365,6 @@ func TestVPCService_GetNamespacesByNetworkconfigName(t *testing.T) {
 		},
 	}
 
-	service.UpdateDefaultNetworkConfig(&v1alpha1.VPCNetworkConfiguration{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "default",
-			Annotations: map[string]string{
-				common.AnnotationDefaultNetworkConfig: "true",
-			},
-		},
-		Spec: v1alpha1.VPCNetworkConfigurationSpec{
-			NSXProject: "/orgs/org/projects/project",
-		},
-	})
-
 	tests := []struct {
 		name            string
 		expectedResults []string
@@ -1417,6 +1406,21 @@ func TestVPCService_GetNamespacesByNetworkconfigName(t *testing.T) {
 				k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					a := list.(*v1.NamespaceList)
 					a.Items = append(a.Items, ns1, ns2, ns3, ns4)
+					return nil
+				})
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					a := list.(*v1alpha1.VPCNetworkConfigurationList)
+					a.Items = append(a.Items, v1alpha1.VPCNetworkConfiguration{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "default",
+							Annotations: map[string]string{
+								common.AnnotationDefaultNetworkConfig: "true",
+							},
+						},
+						Spec: v1alpha1.VPCNetworkConfigurationSpec{
+							NSXProject: "/orgs/org/projects/project",
+						},
+					})
 					return nil
 				})
 			}

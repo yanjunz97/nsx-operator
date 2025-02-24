@@ -14,11 +14,10 @@ import (
 // calling method that should not be exposed.
 type VPCServiceProvider interface {
 	GetNamespacesByNetworkconfigName(nc string) ([]string, error)
-	UpdateDefaultNetworkConfig(vpcNetworkConfig *v1alpha1.VPCNetworkConfiguration) error
 	GetVPCNetworkConfig(ncCRName string) (*VPCNetworkConfigInfo, bool, error)
 	ValidateNetworkConfig(nc VPCNetworkConfigInfo) bool
 	GetVPCNetworkConfigByNamespace(ns string) (*VPCNetworkConfigInfo, error)
-	GetDefaultNetworkConfig() (bool, *VPCNetworkConfigInfo)
+	GetDefaultNetworkConfig() (*VPCNetworkConfigInfo, error)
 	ListVPCInfo(ns string) []VPCResourceInfo
 	GetNetworkconfigNameFromAnnotation(ns string, annos map[string]string) (string, error)
 }

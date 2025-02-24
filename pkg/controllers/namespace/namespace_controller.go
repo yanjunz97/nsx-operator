@@ -43,9 +43,9 @@ type NamespaceReconciler struct {
 }
 
 func (r *NamespaceReconciler) getDefaultNetworkConfigName() (string, error) {
-	exist, nc := r.VPCService.GetDefaultNetworkConfig()
-	if !exist {
-		return "", errors.New("default network config not found")
+	nc, err := r.VPCService.GetDefaultNetworkConfig()
+	if err != nil {
+		return "", fmt.Errorf("default network config not found: %w", err)
 	}
 	return nc.Name, nil
 }

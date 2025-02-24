@@ -384,11 +384,7 @@ func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 
 // Start setup manager and launch GC
 func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
-	err := r.updateDefaultNetworkConfig(context.Background())
-	if err != nil {
-		return err
-	}
-	err = r.setupWithManager(mgr)
+	err := r.setupWithManager(mgr)
 	if err != nil {
 		return err
 	}
@@ -396,25 +392,6 @@ func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
 	// Start a goroutine to periodically sync the pre-created VPC's private IPs to NetworkInfo CR if used.
 	go wait.UntilWithContext(context.Background(), r.syncPreCreatedVpcIPs, preVPCSyncInterval)
 
-	return nil
-}
-
-func (r *NetworkInfoReconciler) updateDefaultNetworkConfig(ctx context.Context) error {
-	log.Info("Update default network config")
-	var networkConfigList v1alpha1.VPCNetworkConfigurationList
-	if err := r.Client.List(ctx, &networkConfigList); err != nil {
-		log.Error(err, "Failed to list VPCNetworkConfigurations")
-		return err
-	}
-	for _, nconfig := range networkConfigList.Items {
-		err := r.Service.UpdateDefaultNetworkConfig(&nconfig)
-		if err != nil {
-			log.Error(err, "Failed to build network config", "NetworkConfig", nconfig)
-			return err
-		}
-		log.Info("Update default network config", "NetworkConfig", nconfig.Name)
-	}
-	log.Info("Update default network config")
 	return nil
 }
 
