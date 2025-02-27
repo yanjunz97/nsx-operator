@@ -172,7 +172,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	ncName := nc.Name
-	log.Info("Fetched network config from store", "NetworkConfig", ncName)
+	log.Info("Fetched NetworkConfig from store", "NetworkConfig", ncName)
 
 	systemVpcNetCfg := &v1alpha1.VPCNetworkConfiguration{}
 	err = r.Client.Get(ctx, types.NamespacedName{Name: commonservice.SystemVPCNetworkConfigurationName}, systemVpcNetCfg)
@@ -603,7 +603,7 @@ func (r *NetworkInfoReconciler) getQueue(controllerName string, rateLimiter work
 func (r *NetworkInfoReconciler) getNetworkConfigInfo(ctx context.Context, networkInfoCR *v1alpha1.NetworkInfo) (*commonservice.VPCNetworkConfigInfo, error) {
 	ncName, err := r.Service.GetNetworkconfigNameFromNS(ctx, networkInfoCR.Namespace)
 	if err != nil {
-		log.Error(err, "Failed to get network config name for VPC when creating NSX VPC", "NetworkInfo", networkInfoCR.Name)
+		log.Error(err, "Failed to get NetworkConfig name for VPC when creating NSX VPC", "NetworkInfo", networkInfoCR.Name)
 		return nil, err
 	}
 	nc, _exist, err := r.Service.GetVPCNetworkConfig(ncName)
@@ -612,8 +612,8 @@ func (r *NetworkInfoReconciler) getNetworkConfigInfo(ctx context.Context, networ
 		return nil, err
 	}
 	if !_exist {
-		log.Error(nil, fmt.Sprintf("network config %s does not exist when creating NSX VPC", ncName))
-		return nil, fmt.Errorf("VPCNetworkConfig %s not found", ncName)
+		log.Error(nil, fmt.Sprintf("NetworkConfig %s does not exist when creating NSX VPC", ncName))
+		return nil, fmt.Errorf("NetworkConfig %s not found", ncName)
 	}
 	return nc, nil
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -68,7 +67,7 @@ func (s *VPCService) GetDefaultNetworkConfig() (*common.VPCNetworkConfigInfo, er
 			return buildNetworkConfigInfo(&vpcConfigCR)
 		}
 	}
-	return nil, fmt.Errorf("failed to locate default network config")
+	return nil, fmt.Errorf("failed to locate default NetworkConfig")
 }
 
 func (s *VPCService) GetVPCNetworkConfig(ncCRName string) (*common.VPCNetworkConfigInfo, bool, error) {
@@ -115,11 +114,11 @@ func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) (*common.VPCNetwo
 
 	nc, ncExist, err := s.GetVPCNetworkConfig(ncName)
 	if err != nil {
-		log.Error(err, "Failed to get network config info using network config name", "Name", ncName)
+		log.Error(err, "Failed to get NetworkConfig info using NetworkConfig name", "Name", ncName)
 		return nil, err
 	}
 	if !ncExist {
-		log.Info("Network config info does not exist", "Name", ncName)
+		log.Info("NetworkConfig info does not exist", "Name", ncName)
 		return nil, nil
 	}
 	return nc, nil
@@ -595,7 +594,7 @@ func (s *VPCService) GetNetworkconfigNameFromAnnotation(ns string, annos map[str
 	if useDefault {
 		nc, err := s.GetDefaultNetworkConfig()
 		if err != nil {
-			log.Error(err, "Can not find default network config", "Namespace", ns)
+			log.Error(err, "Can not find default NetworkConfig", "Namespace", ns)
 			return "", err
 		}
 		return nc.Name, nil
@@ -1212,7 +1211,7 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 		return "", err
 	}
 	if !found {
-		log.Info("Get LB provider", "No system network config found", ncName)
+		log.Info("Get LB provider", "No system NetworkConfig found", ncName)
 		return NoneLB, nil
 	}
 
@@ -1341,48 +1340,4 @@ func (s *VPCService) GetNamespacesWithPreCreatedVPCs() (map[string]string, error
 
 func IsPreCreatedVPC(nc common.VPCNetworkConfigInfo) bool {
 	return nc.VPCPath != ""
-}
-
-func buildNetworkConfigInfo(vpcConfigCR *v1alpha1.VPCNetworkConfiguration) (*common.VPCNetworkConfigInfo, error) {
-	org, project, err := nsxProjectPathToId(vpcConfigCR.Spec.NSXProject)
-	if err != nil {
-		log.Error(err, "Failed to parse NSX project in NetworkConfig", "Project Path", vpcConfigCR.Spec.NSXProject)
-		return nil, err
-	}
-
-	ninfo := &common.VPCNetworkConfigInfo{
-		IsDefault:              isDefaultNetworkConfigCR(vpcConfigCR),
-		Org:                    org,
-		Name:                   vpcConfigCR.Name,
-		VPCConnectivityProfile: vpcConfigCR.Spec.VPCConnectivityProfile,
-		NSXProject:             project,
-		PrivateIPs:             vpcConfigCR.Spec.PrivateIPs,
-		DefaultSubnetSize:      vpcConfigCR.Spec.DefaultSubnetSize,
-		VPCPath:                vpcConfigCR.Spec.VPC,
-	}
-	return ninfo, nil
-}
-
-// parse org id and project id from nsxProject path
-// example /orgs/default/projects/nsx_operator_e2e_test
-func nsxProjectPathToId(path string) (string, string, error) {
-	parts := strings.Split(path, "/")
-	if len(parts) < 4 {
-		return "", "", errors.New("invalid NSX project path")
-	}
-	return parts[2], parts[len(parts)-1], nil
-}
-
-func isDefaultNetworkConfigCR(vpcConfigCR *v1alpha1.VPCNetworkConfiguration) bool {
-	annos := vpcConfigCR.GetAnnotations()
-	val, exist := annos[common.AnnotationDefaultNetworkConfig]
-	if exist {
-		boolVar, err := strconv.ParseBool(val)
-		if err != nil {
-			log.Error(err, "Failed to parse annotation to check default NetworkConfig", "Annotation", annos[common.AnnotationDefaultNetworkConfig])
-			return false
-		}
-		return boolVar
-	}
-	return false
 }

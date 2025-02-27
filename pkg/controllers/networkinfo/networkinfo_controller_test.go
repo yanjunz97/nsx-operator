@@ -1168,7 +1168,7 @@ func TestNetworkInfoReconciler_Create(t *testing.T) {
 				})
 				return patches
 			},
-			expectErrStr: "failed to locate default network config",
+			expectErrStr: "failed to locate default NetworkConfig",
 			existingNetworkInfo: &v1alpha1.NetworkInfo{
 				ObjectMeta: metav1.ObjectMeta{Name: "testNetworkInfo", Namespace: "testNamespace", UID: "fakeNamespaceUID"},
 				VPCs:       nil,

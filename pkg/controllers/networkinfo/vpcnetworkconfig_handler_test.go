@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -23,56 +22,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
-
-func TestNsxProjectPathToId(t *testing.T) {
-	tests := []struct {
-		name      string
-		path      string
-		org       string
-		project   string
-		expectErr string
-	}{
-		{"Valid project path", "/orgs/default/projects/nsx_operator_e2e_test", "default", "nsx_operator_e2e_test", ""},
-		{"Invalid project path", "", "", "", "invalid NSX project path"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			o, p, err := nsxProjectPathToId(tt.path)
-			if tt.expectErr != "" {
-				assert.ErrorContains(t, err, tt.expectErr)
-			} else {
-				assert.NoError(t, err)
-			}
-			assert.Equal(t, tt.org, o)
-			assert.Equal(t, tt.project, p)
-		})
-	}
-}
-
-func TestIsDefaultNetworkConfigCR(t *testing.T) {
-	testCRD1 := v1alpha1.VPCNetworkConfiguration{}
-	testCRD1.Name = "test-1"
-	testCRD2 := v1alpha1.VPCNetworkConfiguration{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{
-				types.AnnotationDefaultNetworkConfig: "invalid",
-			},
-		},
-	}
-	testCRD2.Name = "test-2"
-	testCRD3 := v1alpha1.VPCNetworkConfiguration{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{
-				types.AnnotationDefaultNetworkConfig: "true",
-			},
-		},
-	}
-	testCRD3.Name = "test-3"
-	assert.Equal(t, isDefaultNetworkConfigCR(testCRD1), false)
-	assert.Equal(t, isDefaultNetworkConfigCR(testCRD2), false)
-	assert.Equal(t, isDefaultNetworkConfigCR(testCRD3), true)
-
-}
 
 func createVPCNetworkConfigurationHandler(objs []client.Object) *VPCNetworkConfigurationHandler {
 	newScheme := runtime.NewScheme()

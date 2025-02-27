@@ -45,7 +45,7 @@ type NamespaceReconciler struct {
 func (r *NamespaceReconciler) getDefaultNetworkConfigName() (string, error) {
 	nc, err := r.VPCService.GetDefaultNetworkConfig()
 	if err != nil {
-		return "", fmt.Errorf("default network config not found: %w", err)
+		return "", fmt.Errorf("default NetworkConfig not found: %w", err)
 	}
 	return nc.Name, nil
 }
@@ -201,23 +201,23 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 		ncName, err := r.VPCService.GetNetworkconfigNameFromAnnotation(ns, annotations)
 		if err != nil {
-			log.Error(err, "Failed to get network config name", "Namespace", ns)
+			log.Error(err, "Failed to get NetworkConfig name", "Namespace", ns)
 			return common.ResultRequeueAfter10sec, nil
 		}
 
 		nc, ncExist, err := r.VPCService.GetVPCNetworkConfig(ncName)
 		if err != nil {
-			log.Error(err, "Failed to get network config", "Namespace", ncName)
+			log.Error(err, "Failed to get NetworkConfig", "Namespace", ncName)
 			return common.ResultRequeue, nil
 		}
 		if !ncExist {
-			message := fmt.Sprintf("missing network config %s for Namespace %s", ncName, ns)
+			message := fmt.Sprintf("missing NetworkConfig %s for Namespace %s", ncName, ns)
 			r.namespaceError(ctx, obj, message, nil)
 			return common.ResultRequeueAfter10sec, errors.New(message)
 		}
 		if !r.VPCService.ValidateNetworkConfig(*nc) {
 			// if network config is not valid, no need to retry, skip processing
-			message := fmt.Sprintf("invalid network config %s for Namespace %s, missing private cidr", ncName, ns)
+			message := fmt.Sprintf("invalid NetworkConfig %s for Namespace %s, missing private cidr", ncName, ns)
 			r.namespaceError(ctx, obj, message, nil)
 			return common.ResultRequeueAfter10sec, errors.New(message)
 		}

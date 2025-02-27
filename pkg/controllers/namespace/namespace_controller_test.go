@@ -141,7 +141,7 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "Namespace update using default network config",
+			name: "Namespace update using default NetworkConfig",
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-ns"}},
 			patches: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// GetDefaultNetworkConfig
@@ -156,7 +156,7 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "Namespace update with error missing network config",
+			name: "Namespace update with error missing NetworkConfig",
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-ns"}},
 			patches: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// GetDefaultNetworkConfig
@@ -174,7 +174,7 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectErrStr: "missing network config",
+			expectErrStr: "missing NetworkConfig",
 			expectRes:    ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second},
 			existingNamespaceCR: &v1.Namespace{
 				TypeMeta:   metav1.TypeMeta{},

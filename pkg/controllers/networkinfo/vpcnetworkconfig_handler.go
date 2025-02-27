@@ -2,10 +2,7 @@ package networkinfo
 
 import (
 	"context"
-	"errors"
 	"reflect"
-	"strconv"
-	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -64,18 +61,18 @@ func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.Gene
 }
 
 func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.V(1).Info("Start processing VPC network config update event")
+	log.V(1).Info("Start processing VPC NetworkConfig update event")
 	newNc := e.ObjectNew.(*v1alpha1.VPCNetworkConfiguration)
 
 	oldNc := e.ObjectOld.(*v1alpha1.VPCNetworkConfiguration)
 	if reflect.DeepEqual(oldNc.Spec, newNc.Spec) {
-		log.Info("Skip processing VPC network config update event", "newNc", newNc, "oldNc", oldNc)
+		log.Info("Skip processing VPC NetworkConfig update event", "newNc", newNc, "oldNc", oldNc)
 		return
 	}
 
 	nss, err := h.vpcService.GetNamespacesByNetworkconfigName(newNc.Name)
 	if err != nil {
-		log.Error(err, "Failed to get Namespaces with network config", "VPCNetworkConfig", newNc.Name)
+		log.Error(err, "Failed to get Namespaces with NetworkConfig", "VPCNetworkConfig", newNc.Name)
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{Name: newNc.GetName(), Namespace: newNc.GetNamespace()},
 		}
@@ -90,7 +87,7 @@ func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.Upd
 		}
 
 		for _, networkInfo := range networkInfos.Items {
-			log.Info("Requeue NetworkInfo CR due to modifying network config CR", "NetworkInfo", networkInfo.Name, "Namespace", ns, "NetworkConfig", newNc.Name)
+			log.Info("Requeue NetworkInfo CR due to modifying NetworkConfig CR", "NetworkInfo", networkInfo.Name, "Namespace", ns, "NetworkConfig", newNc.Name)
 			q.Add(reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      networkInfo.Name,
@@ -114,28 +111,4 @@ var VPCNetworkConfigurationPredicate = predicate.Funcs{
 	GenericFunc: func(genericEvent event.GenericEvent) bool {
 		return false
 	},
-}
-
-func isDefaultNetworkConfigCR(vpcConfigCR v1alpha1.VPCNetworkConfiguration) bool {
-	annos := vpcConfigCR.GetAnnotations()
-	val, exist := annos[commontypes.AnnotationDefaultNetworkConfig]
-	if exist {
-		boolVar, err := strconv.ParseBool(val)
-		if err != nil {
-			log.Error(err, "failed to parse annotation to check default NetworkConfig", "Annotation", annos[commontypes.AnnotationDefaultNetworkConfig])
-			return false
-		}
-		return boolVar
-	}
-	return false
-}
-
-// parse org id and project id from nsxProject path
-// example /orgs/default/projects/nsx_operator_e2e_test
-func nsxProjectPathToId(path string) (string, string, error) {
-	parts := strings.Split(path, "/")
-	if len(parts) < 4 {
-		return "", "", errors.New("invalid NSX project path")
-	}
-	return parts[2], parts[len(parts)-1], nil
 }
