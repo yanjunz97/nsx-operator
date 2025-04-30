@@ -84,6 +84,21 @@ func GetDefaultSubnetSetByNamespace(client k8sclient.Client, namespace string, r
 
 }
 
+func GetSharedNamespaceForNamespace(client k8sclient.Client, ctx context.Context, namespaceName string) (string, error) {
+	namespace := &v1.Namespace{}
+	namespacedName := types.NamespacedName{Name: namespaceName}
+	if err := client.Get(ctx, namespacedName, namespace); err != nil {
+		log.Error(err, "Failed to get target namespace during getting VPC for namespace")
+		return "", err
+	}
+	sharedNamespaceName, exists := namespace.Annotations[servicecommon.AnnotationSharedVPCNamespace]
+	if !exists {
+		return "", nil
+	}
+	log.Info("Got shared VPC Namespace", "current Namespace", namespaceName, "shared Namespace", sharedNamespaceName)
+	return sharedNamespaceName, nil
+}
+
 func NodeIsMaster(node *v1.Node) bool {
 	for k := range node.Labels {
 		if k == LabelK8sMasterRole || k == LabelK8sControlRole {

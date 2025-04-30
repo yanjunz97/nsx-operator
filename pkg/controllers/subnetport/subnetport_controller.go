@@ -507,6 +507,7 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 
 func (r *SubnetPortReconciler) getSubnetByIP(subnetPort *v1alpha1.SubnetPort) (string, error) {
 	var subnets []*model.VpcSubnet
+	var sharedSubnets []*model.VpcSubnet
 	if len(subnetPort.Spec.Subnet) > 0 {
 		subnets = r.SubnetService.ListSubnetByName(subnetPort.Namespace, subnetPort.Spec.Subnet)
 	} else if len(subnetPort.Spec.SubnetSet) > 0 {
@@ -517,9 +518,28 @@ func (r *SubnetPortReconciler) getSubnetByIP(subnetPort *v1alpha1.SubnetPort) (s
 			return "", err
 		}
 		subnets = r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.UID))
+		// TODO: As in 9.0 and before, shared VPCs share Subnet. We need to check
+		// the shared Namespace default SubnetSet for backward compatibility.
+		// This part can be removed when there is no use case to restore SubnetPort
+		// created in shared Namespaces with 9.0 and before.
+		sharedNamespace, err := common.GetSharedNamespaceForNamespace(r.Client, context.TODO(), subnetPort.Namespace)
+		if err != nil {
+			return "", err
+		}
+		if sharedNamespace != "" {
+			subnetSet, err = common.GetDefaultSubnetSetByNamespace(r.Client, subnetPort.Namespace, servicecommon.LabelDefaultVMSubnetSet)
+			if err != nil {
+				return "", err
+			}
+			sharedSubnets = r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.UID))
+		}
 	}
 	gatewayIP := net.ParseIP(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway)
-	return common.GetSubnetByIP(subnets, gatewayIP)
+	subnetPath, err := common.GetSubnetByIP(subnets, gatewayIP)
+	if err != nil && len(sharedSubnets) > 0 {
+		return common.GetSubnetByIP(sharedSubnets, gatewayIP)
+	}
+	return subnetPath, err
 }
 
 func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (existing bool, isStale bool, subnetPath string, err error) {

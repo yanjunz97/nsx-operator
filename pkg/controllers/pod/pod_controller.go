@@ -376,8 +376,26 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 		if pod.Status.PodIP != "" {
 			subnetPath, err = r.getSubnetByIP(pod, string(subnetSet.UID))
 			if err != nil {
-				log.Error(err, "Failed to find Subnet for restored Pod", "Pod", pod)
-				return false, "", err
+				log.Error(err, "Failed to find Subnet for restored Pod", "Pod", pod, "SubnetSet", subnetSet)
+				// TODO: As in 9.0 and before, shared VPCs share Subnet. We need to check
+				// the shared Namespace default SubnetSet for backward compatibility.
+				// This part can be removed when there is no use case to restore Pod
+				// created in shared Namespaces with 9.0 and before.
+				sharedNamespace, err := common.GetSharedNamespaceForNamespace(r.Client, ctx, pod.Namespace)
+				if err != nil {
+					return false, "", fmt.Errorf("failed to get sharedNamespace SubnetSet: %w", err)
+				}
+				if sharedNamespace != "" {
+					subnetSet, err = common.GetDefaultSubnetSetByNamespace(r.Client, pod.Namespace, servicecommon.LabelDefaultPodSubnetSet)
+					if err != nil {
+						return false, "", err
+					}
+				}
+				subnetPath, err = r.getSubnetByIP(pod, string(subnetSet.UID))
+				if err != nil {
+					log.Error(err, "Failed to find Subnet for restored Pod", "Pod", pod)
+					return false, "", err
+				}
 			}
 			log.V(1).Info("NSX SubnetPort will be restored on the existing NSX Subnet", "pod.UID", pod.UID, "subnetPath", subnetPath)
 			return true, subnetPath, nil
