@@ -38,6 +38,7 @@ type SubnetService struct {
 	common.Service
 	SubnetStore *SubnetStore
 	builder     *common.PolicyTreeBuilder[*model.VpcSubnet]
+	vpcService  common.VPCServiceProvider
 }
 
 // SubnetParameters stores parameters to CRUD Subnet object
@@ -48,7 +49,7 @@ type SubnetParameters struct {
 }
 
 // InitializeSubnetService initialize Subnet service.
-func InitializeSubnetService(service common.Service) (*SubnetService, error) {
+func InitializeSubnetService(service common.Service, vpcService common.VPCServiceProvider) (*SubnetService, error) {
 	builder, _ := common.PolicyPathVpcSubnet.NewPolicyTreeBuilder()
 
 	wg := sync.WaitGroup{}
@@ -68,7 +69,8 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 				BindingType: model.VpcSubnetBindingType(),
 			},
 		},
-		builder: builder,
+		builder:    builder,
+		vpcService: vpcService,
 	}
 
 	wg.Add(1)
@@ -458,4 +460,40 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 		log.Info("Successfully updated SubnetSet", "subnetSet", subnetSet, "Subnet", *vpcSubnet.Id)
 	}
 	return nil
+}
+
+// GetSharedSubnetFromNSX returns NSX Subnet, error and retriable for Shared Subnet CR.
+// If it fails due to API calls, the retriable will be true.
+func (service *SubnetService) GetSharedSubnetFromNSX(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error, bool) {
+	anno := subnet.GetAnnotations()
+	associatedResource, ok := anno[common.AnnotationAssociatedResource]
+	if !ok {
+		return nil, fmt.Errorf("no associated resource annotation in Shared Subnet %s/%s", subnet.Namespace, subnet.Name), false
+	}
+	// associatedResource has the format projectID:vpcID:subnetID or :vpcID:subnetID for default project
+	parts := strings.Split(associatedResource, ":")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("failed to parse associated resource annotation %s", associatedResource), false
+	}
+	if parts[0] == "" {
+		nc, err := service.vpcService.GetDefaultNetworkConfig()
+		if err != nil {
+			return nil, err, true
+		}
+		_, defaultProject, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
+		if err != nil {
+			return nil, err, false
+		}
+		parts[0] = defaultProject
+	}
+	vpcInfoList := service.vpcService.ListVPCInfo(subnet.Namespace)
+	if len(vpcInfoList) == 0 {
+		return nil, fmt.Errorf("failed to get VPC Info for Namespace %s", subnet.Namespace), true
+	}
+	nsxSubnet, err := service.NSXClient.SubnetsClient.Get(vpcInfoList[0].OrgID, parts[0], parts[1], parts[2])
+	if err != nil {
+		err = nsxutil.TransNSXApiError(err)
+		return nil, err, true
+	}
+	return &nsxSubnet, nil, false
 }

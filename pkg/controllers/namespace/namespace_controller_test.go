@@ -168,7 +168,7 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-ns"}},
 			patches: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// GetDefaultNetworkConfig
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (*v1alpha1.VPCNetworkConfiguration, error) {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (*v1alpha1.VPCNetworkConfiguration, error) {
 					return &nc, nil
 				})
 				return patches
@@ -187,7 +187,7 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-ns"}},
 			patches: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// GetDefaultNetworkConfig
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (*v1alpha1.VPCNetworkConfiguration, error) {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (*v1alpha1.VPCNetworkConfiguration, error) {
 					return &nc, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetVPCNetworkConfig", func(_ *vpc.VPCService, ncCRName string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {

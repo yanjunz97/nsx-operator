@@ -115,7 +115,7 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 
 	wrapInitializeSubnetService := func(service common.Service) cleanupFunc {
 		return func() (interface{}, error) {
-			return subnet.InitializeSubnetService(service)
+			return subnet.InitializeSubnetService(service, vpcService)
 		}
 	}
 	wrapInitializeSecurityPolicy := func(service common.Service) cleanupFunc {

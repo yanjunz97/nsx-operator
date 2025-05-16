@@ -153,7 +153,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "Failed to initialize vpc commonService", "controller", "VPC")
 			os.Exit(1)
 		}
-		subnetService, err := subnetservice.InitializeSubnetService(commonService)
+		subnetService, err := subnetservice.InitializeSubnetService(commonService, vpcService)
 		if err != nil {
 			log.Error(err, "Failed to initialize subnet commonService")
 			os.Exit(1)

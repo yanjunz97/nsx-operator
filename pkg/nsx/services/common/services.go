@@ -31,6 +31,7 @@ type SubnetServiceProvider interface {
 	GenerateSubnetNSTags(obj client.Object) []model.Tag
 	ListSubnetByName(ns, name string) []*model.VpcSubnet
 	ListSubnetBySubnetSetName(ns, subnetSetName string) []*model.VpcSubnet
+	GetSharedSubnetFromNSX(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error, bool)
 }
 
 type SubnetPortServiceProvider interface {
