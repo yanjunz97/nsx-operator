@@ -394,7 +394,9 @@ func TestValidateDependency(t *testing.T) {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
 					if !isTarget {
 						return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child"}, &v1alpha1.Subnet{
-							Status: v1alpha1.SubnetStatus{Shared: true},
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
+							},
 						}, nil
 					}
 					return []string{"/orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent"}, &v1alpha1.Subnet{}, nil
@@ -409,8 +411,8 @@ func TestValidateDependency(t *testing.T) {
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
 					return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child"}, &v1alpha1.Subnet{
-						Status: v1alpha1.SubnetStatus{
-							Shared: true,
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
 						},
 					}, nil
 				})
@@ -430,7 +432,9 @@ func TestValidateDependency(t *testing.T) {
 						return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child"}, &v1alpha1.Subnet{}, nil
 					}
 					return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-parent"}, &v1alpha1.Subnet{
-						Status: v1alpha1.SubnetStatus{Shared: true},
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
+						},
 					}, nil
 				})
 				return patches
@@ -468,9 +472,10 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 	}
 	sharedSubnetCR := &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      subnetName,
-			Namespace: subnetNamespace,
-			UID:       "subnet-uuid",
+			Name:        subnetName,
+			Namespace:   subnetNamespace,
+			UID:         "subnet-uuid",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
 		},
 		Status: v1alpha1.SubnetStatus{
 			Shared: true,
