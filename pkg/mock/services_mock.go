@@ -90,10 +90,6 @@ func (m *MockSubnetServiceProvider) ListSubnetBySubnetSetName(ns, subnetSetName 
 	return []*model.VpcSubnet{}
 }
 
-func (m *MockSubnetServiceProvider) GetSharedSubnetFromNSX(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error, bool) {
-	return nil, nil, false
-}
-
 type MockSubnetPortServiceProvider struct {
 	mock.Mock
 }

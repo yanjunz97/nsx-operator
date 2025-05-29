@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -102,7 +101,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	// Create or update SubnetConnectionBindingMap
 	r.StatusUpdater.IncreaseUpdateTotal()
-	childSubnet, parentSubnets, err := r.validateDependency(ctx, bindingMapCR)
+	childSubnetPath, parentSubnetPaths, err := r.validateDependency(ctx, bindingMapCR)
 	if err != nil {
 		// Update SubnetConnectionBindingMap with not-ready condition
 		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, err, "dependent Subnets are not ready", updateBindingMapStatusWithUnreadyCondition, "DependencyNotReady", err.message)
@@ -113,7 +112,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return common.ResultRequeueAfter60sec, nil
 	}
 
-	if err := r.SubnetBindingService.CreateOrUpdateSubnetConnectionBindingMap(bindingMapCR, childSubnet, parentSubnets); err != nil {
+	if err := r.SubnetBindingService.CreateOrUpdateSubnetConnectionBindingMap(bindingMapCR, childSubnetPath, parentSubnetPaths); err != nil {
 		// Update SubnetConnectionBindingMap with not-ready condition
 		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, err, "failure to configure SubnetConnectionBindingMaps on NSX", updateBindingMapStatusWithUnreadyCondition, "ConfigureFailed", fmt.Sprintf("Failed to realize SubnetConnectionBindingMap %s on NSX", req.Name))
 		return common.ResultRequeue, nil
@@ -223,57 +222,57 @@ func getVpcPath(subnetPath string) (string, *errorWithRetry) {
 //  3. the target Subnet is a pre-created Subnet. In this case, a not-retry error is returned.
 //  4. the associated Subnet is a pre-created Subnet in a VPC different from the target Subnet Namespace VPC
 //     In this case, not-retry error is returned.
-func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (*model.VpcSubnet, []*model.VpcSubnet, *errorWithRetry) {
-	childSubnets, childSubnetCR, err := r.validateVpcSubnetsBySubnetCR(ctx, bindingMap.Namespace, bindingMap.Spec.SubnetName, false)
+func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+	childSubnetPaths, childSubnetCR, err := r.validateVpcSubnetsBySubnetCR(ctx, bindingMap.Namespace, bindingMap.Spec.SubnetName, false)
 	if err != nil {
-		return nil, nil, err
+		return "", nil, err
 	}
-	childSubnet := childSubnets[0]
+	childSubnetPath := childSubnetPaths[0]
 
-	var parentSubnets []*model.VpcSubnet
+	var parentSubnetPaths []string
 	if bindingMap.Spec.TargetSubnetName != "" {
 		var parentSubnetCR *v1alpha1.Subnet
-		parentSubnets, parentSubnetCR, err = r.validateVpcSubnetsBySubnetCR(ctx, bindingMap.Namespace, bindingMap.Spec.TargetSubnetName, true)
+		parentSubnetPaths, parentSubnetCR, err = r.validateVpcSubnetsBySubnetCR(ctx, bindingMap.Namespace, bindingMap.Spec.TargetSubnetName, true)
 		if err != nil {
-			return nil, nil, err
+			return "", nil, err
 		}
 		// Check if the target Subnet is pre-created Subnet
 		if parentSubnetCR.Status.Shared {
-			return nil, nil, &errorWithRetry{
+			return "", nil, &errorWithRetry{
 				message: fmt.Sprintf("Target Subnet %s/%s is a pre-created Subnet", bindingMap.Namespace, bindingMap.Spec.TargetSubnetName),
 				error:   fmt.Errorf("pre-created Subnet %s/%s cannot be a target Subnet", bindingMap.Namespace, bindingMap.Spec.TargetSubnetName),
 				retry:   false,
 			}
 		}
 	} else {
-		parentSubnets, err = r.validateVpcSubnetsBySubnetSetCR(ctx, bindingMap.Namespace, bindingMap.Spec.TargetSubnetSetName)
+		parentSubnetPaths, err = r.validateVpcSubnetsBySubnetSetCR(ctx, bindingMap.Namespace, bindingMap.Spec.TargetSubnetSetName)
 		if err != nil {
-			return nil, nil, err
+			return "", nil, err
 		}
 	}
 
 	// If child Subnet is a pre-created Subnet, check if it is in the same vpc as parent Subnet
 	if childSubnetCR.Status.Shared {
-		childVpcPath, err := getVpcPath(*childSubnet.Path)
+		childVpcPath, err := getVpcPath(childSubnetPath)
 		if err != nil {
-			return nil, nil, err
+			return "", nil, err
 		}
-		parentVpcPath, err := getVpcPath(*parentSubnets[0].Path)
+		parentVpcPath, err := getVpcPath(parentSubnetPaths[0])
 		if err != nil {
-			return nil, nil, err
+			return "", nil, err
 		}
 		if childVpcPath != parentVpcPath {
-			return nil, nil, &errorWithRetry{
-				message: fmt.Sprintf("Subnet %s VPC %s and target Subnet %s VPC %s are different", *childSubnet.Id, childVpcPath, *parentSubnets[0].Id, parentVpcPath),
+			return "", nil, &errorWithRetry{
+				message: fmt.Sprintf("Subnet %s and target Subnet %s are in different VPCs", childSubnetPath, parentSubnetPaths[0]),
 				retry:   false,
 				error:   fmt.Errorf("Subnet and target Subnet are in different VPCs"),
 			}
 		}
 	}
-	return childSubnet, parentSubnets, nil
+	return childSubnetPath, parentSubnetPaths, nil
 }
 
-func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace, name string, isTarget bool) ([]*model.VpcSubnet, *v1alpha1.Subnet, *errorWithRetry) {
+func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace, name string, isTarget bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
 	subnetCR := &v1alpha1.Subnet{}
 	subnetKey := types.NamespacedName{Namespace: namespace, Name: name}
 	// Check the Subnet CR existence.
@@ -288,24 +287,41 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 	}
 
 	// Check the Subnet CR realization.
-	var subnets []*model.VpcSubnet
+	var subnetPaths []string
 	if subnetCR.Status.Shared {
-		subnet, err, retry := r.SubnetService.GetSharedSubnetFromNSX(subnetCR)
-		if err != nil {
-			log.Info("Failed to get NSX Subnet for shared Subnet", "Subnet", subnetKey.String(), "error", err)
+		realized := false
+		for _, con := range subnetCR.Status.Conditions {
+			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
+				realized = true
+				break
+			}
+		}
+		if !realized {
 			return nil, subnetCR, &errorWithRetry{
 				message: fmt.Sprintf("Subnet CR %s is not realized on NSX", name),
-				retry:   retry,
+				retry:   false,
 				error:   err,
 			}
 		}
-		subnets = append(subnets, subnet)
+		path, err := r.SubnetService.GetSharedSubnetPath(subnetCR)
+		if err != nil {
+			log.Info("Failed to get NSX Subnet path for shared Subnet", "Subnet", subnetKey.String(), "error", err)
+			return nil, subnetCR, &errorWithRetry{
+				message: fmt.Sprintf("Failed to get NSX Subnet path for shared Subnet %s", name),
+				retry:   true,
+				error:   err,
+			}
+		}
+		subnetPaths = append(subnetPaths, path)
 	} else {
-		subnets = r.SubnetService.ListSubnetCreatedBySubnet(string(subnetCR.UID))
+		subnets := r.SubnetService.ListSubnetCreatedBySubnet(string(subnetCR.UID))
+		for _, subnet := range subnets {
+			subnetPaths = append(subnetPaths, *subnet.Path)
+		}
 	}
 
-	if len(subnets) == 0 {
-		log.Info("NSX VpcSubnets by subnet CR do not exist", "Subnet", subnetKey.String())
+	if len(subnetPaths) == 0 {
+		log.Info("NSX VpcSubnets by Subnet CR do not exist", "Subnet", subnetKey.String())
 		return nil, subnetCR, &errorWithRetry{
 			message: fmt.Sprintf("Subnet CR %s is not realized on NSX", name),
 			retry:   false,
@@ -315,7 +331,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 
 	// Check if the Subnet CR is nested.
 	if !isTarget {
-		bms := r.SubnetBindingService.GetSubnetConnectionBindingMapsByParentSubnet(subnets[0])
+		bms := r.SubnetBindingService.GetSubnetConnectionBindingMapsByParentSubnet(subnetPaths[0])
 		if len(bms) > 0 {
 			dependency := r.SubnetBindingService.GetSubnetConnectionBindingMapCRName(bms[0])
 			return nil, subnetCR, &errorWithRetry{
@@ -325,7 +341,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 			}
 		}
 	} else {
-		bms := r.SubnetBindingService.GetSubnetConnectionBindingMapsByChildSubnet(subnets[0])
+		bms := r.SubnetBindingService.GetSubnetConnectionBindingMapsByChildSubnet(subnetPaths[0])
 		if len(bms) > 0 {
 			dependency := r.SubnetBindingService.GetSubnetConnectionBindingMapCRName(bms[0])
 			return nil, subnetCR, &errorWithRetry{
@@ -335,10 +351,10 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 			}
 		}
 	}
-	return subnets, subnetCR, nil
+	return subnetPaths, subnetCR, nil
 }
 
-func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namespace, name string) ([]*model.VpcSubnet, *errorWithRetry) {
+func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namespace, name string) ([]string, *errorWithRetry) {
 	subnetSetCR := &v1alpha1.SubnetSet{}
 	subnetSetKey := types.NamespacedName{Namespace: namespace, Name: name}
 	err := r.Client.Get(ctx, subnetSetKey, subnetSetCR)
@@ -360,7 +376,11 @@ func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namesp
 			retry:   false,
 		}
 	}
-	return subnets, nil
+	subnetPaths := make([]string, len(subnets))
+	for i := range subnets {
+		subnetPaths[i] = *subnets[i].Path
+	}
+	return subnetPaths, nil
 }
 
 func updateBindingMapStatusWithUnreadyCondition(c client.Client, ctx context.Context, obj client.Object, _ metav1.Time, _ error, args ...interface{}) {

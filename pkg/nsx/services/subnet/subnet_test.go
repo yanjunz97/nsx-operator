@@ -771,15 +771,12 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 	}
 }
 
-func TestSubnetService_GetSharedSubnetFromNSX(t *testing.T) {
+func TestSubnetService_GetSharedSubnetPath(t *testing.T) {
 	commonservice := common.Service{
 		NSXConfig: &config.NSXOperatorConfig{
 			CoeConfig: &config.CoeConfig{
 				Cluster: "test-cluster",
 			},
-		},
-		NSXClient: &nsx.Client{
-			SubnetsClient: &fakeSubnetsClient{},
 		},
 	}
 	service := &SubnetService{
@@ -791,12 +788,11 @@ func TestSubnetService_GetSharedSubnetFromNSX(t *testing.T) {
 		SubnetStore: &SubnetStore{},
 	}
 	for _, tc := range []struct {
-		name      string
-		subnet    *v1alpha1.Subnet
-		patches   func(t *testing.T) *gomonkey.Patches
-		expErr    string
-		expRetry  bool
-		nsxSubnet *model.VpcSubnet
+		name    string
+		subnet  *v1alpha1.Subnet
+		patches func(t *testing.T) *gomonkey.Patches
+		expErr  string
+		path    string
 	}{
 		{
 			name: "Failed to get associated resource",
@@ -804,8 +800,6 @@ func TestSubnetService_GetSharedSubnetFromNSX(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "subnet-1", Namespace: "ns-1"},
 			},
 			expErr: "no associated resource annotation in Shared Subnet ns-1/subnet-1",
-			// no retriable as shared Subnet should have associated resource annotation
-			expRetry: false,
 		},
 		{
 			name: "Invalid associated resource",
@@ -817,51 +811,6 @@ func TestSubnetService_GetSharedSubnetFromNSX(t *testing.T) {
 				},
 			},
 			expErr: "failed to parse associated resource annotation subnet-1",
-			// no retriable as associated resource annotation should have the format projectID:vpcID:subnetID or :vpcID:subnetID
-			expRetry: false,
-		},
-		{
-			name: "Failed to get default NetworkConfig",
-			subnet: &v1alpha1.Subnet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "subnet-1",
-					Namespace:   "ns-1",
-					Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
-				},
-			},
-			patches: func(t *testing.T) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.vpcService), "GetDefaultNetworkConfig", func(_ common.VPCServiceProvider) (*v1alpha1.VPCNetworkConfiguration, error) {
-					return nil, fmt.Errorf("NetworkConfig not found")
-				})
-				return patches
-			},
-			expErr: "NetworkConfig not found",
-			// Retriable as GetDefaultNetworkConfig may failed due to API call failure
-			expRetry: true,
-		},
-		{
-			name: "Failed to parse default project",
-			subnet: &v1alpha1.Subnet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "subnet-1",
-					Namespace:   "ns-1",
-					Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
-				},
-			},
-			patches: func(t *testing.T) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.vpcService), "GetDefaultNetworkConfig", func(_ common.VPCServiceProvider) (*v1alpha1.VPCNetworkConfiguration, error) {
-					return &v1alpha1.VPCNetworkConfiguration{
-						ObjectMeta: metav1.ObjectMeta{Name: "vpc-config-1"},
-						Spec: v1alpha1.VPCNetworkConfigurationSpec{
-							NSXProject: "/invalid-path",
-						},
-					}, nil
-				})
-				return patches
-			},
-			expErr: "invalid NSX project path",
-			// No retriable as project path should be in the format /orgs/orgId/projects/projectId
-			expRetry: false,
 		},
 		{
 			name: "Failed to get VPC info",
@@ -873,84 +822,35 @@ func TestSubnetService_GetSharedSubnetFromNSX(t *testing.T) {
 				},
 			},
 			patches: func(t *testing.T) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.vpcService), "GetDefaultNetworkConfig", func(_ common.VPCServiceProvider) (*v1alpha1.VPCNetworkConfiguration, error) {
-					return &v1alpha1.VPCNetworkConfiguration{
-						ObjectMeta: metav1.ObjectMeta{Name: "vpc-config-1"},
-						Spec: v1alpha1.VPCNetworkConfigurationSpec{
-							NSXProject: "/orgs/org/projects/default",
-						},
-					}, nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(service.vpcService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.vpcService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
 					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(service), "getDefaultNSXProject", func(_ *SubnetService, org string) (string, error) {
+					return "default", nil
 				})
 				return patches
 			},
 			expErr: "failed to get VPC Info for Namespace ns-1",
-			// retriable as ListVPCInfo may failed due to API call failure
-			expRetry: true,
 		},
 		{
-			name: "Get shared Subnet successfully",
+			name: "Get path successfully",
 			subnet: &v1alpha1.Subnet{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:        "subnet-1",
 					Namespace:   "ns-1",
-					Annotations: map[string]string{common.AnnotationAssociatedResource: "project-1:ns-1:subnet-1"},
+					Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
 				},
 			},
 			patches: func(t *testing.T) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.vpcService), "GetVPCNetworkConfigByNamespace", func(_ common.VPCServiceProvider, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
-					return &v1alpha1.VPCNetworkConfiguration{
-						Spec: v1alpha1.VPCNetworkConfigurationSpec{
-							Subnets: []string{
-								"/orgs/org/projects/default/vpcs/ns-1/subnets/subnet-1",
-								"/orgs/org/projects/project-1/vpcs/ns-1/subnets/subnet-1",
-							},
-						},
-					}, nil
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.vpcService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "project-1", VPCID: "ns-2", ID: "ns-2"}}
 				})
-				patches.ApplyMethod(reflect.TypeOf(service.vpcService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
-					return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "project-1", VPCID: "ns-1", ID: "subnet-1"}}
-				})
-				patches.ApplyMethod(reflect.TypeOf(service.NSXClient.SubnetsClient), "Get", func(_ *fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnet, error) {
-					return model.VpcSubnet{Id: common.String("subnet-1")}, nil
+				patches.ApplyPrivateMethod(reflect.TypeOf(service), "getDefaultNSXProject", func(_ *SubnetService, org string) (string, error) {
+					return "default", nil
 				})
 				return patches
 			},
-			nsxSubnet: &model.VpcSubnet{Id: common.String("subnet-1")},
-		},
-		{
-			name: "Failed to get NSX Subnet",
-			subnet: &v1alpha1.Subnet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "subnet-1",
-					Namespace:   "ns-1",
-					Annotations: map[string]string{common.AnnotationAssociatedResource: "project-1:ns-1:subnet-1"},
-				},
-			},
-			patches: func(t *testing.T) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.vpcService), "GetVPCNetworkConfigByNamespace", func(_ common.VPCServiceProvider, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
-					return &v1alpha1.VPCNetworkConfiguration{
-						Spec: v1alpha1.VPCNetworkConfigurationSpec{
-							Subnets: []string{
-								"/orgs/org/projects/default/vpcs/ns-1/subnets/subnet-1",
-								"/orgs/org/projects/project-1/vpcs/ns-1/subnets/subnet-1",
-							},
-						},
-					}, nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(service.vpcService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
-					return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "project-1", VPCID: "ns-1", ID: "subnet-1"}}
-				})
-				patches.ApplyMethod(reflect.TypeOf(service.NSXClient.SubnetsClient), "Get", func(_ *fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnet, error) {
-					return model.VpcSubnet{}, fmt.Errorf("failed to get NSX Subnet")
-				})
-				return patches
-			},
-			expErr: "failed to get NSX Subnet",
-			// retriable as Get Subnet may failed due to API call failure
-			expRetry: true,
+			path: "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -958,12 +858,11 @@ func TestSubnetService_GetSharedSubnetFromNSX(t *testing.T) {
 				patches := tc.patches(t)
 				defer patches.Reset()
 			}
-			nsxSubnet, err, retry := service.GetSharedSubnetFromNSX(tc.subnet)
+			path, err := service.GetSharedSubnetPath(tc.subnet)
 			if tc.expErr != "" {
 				require.EqualError(t, err, tc.expErr)
-				require.Equal(t, tc.expRetry, retry)
 			}
-			require.Equal(t, tc.nsxSubnet, nsxSubnet)
+			require.Equal(t, tc.path, path)
 		})
 	}
 }

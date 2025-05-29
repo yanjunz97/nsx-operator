@@ -462,38 +462,42 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 	return nil
 }
 
-// GetSharedSubnetFromNSX returns NSX Subnet, error and retriable for Shared Subnet CR.
-// If it fails due to API calls, the retriable will be true.
-func (service *SubnetService) GetSharedSubnetFromNSX(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error, bool) {
+func (service *SubnetService) getDefaultNSXProject(org string) (string, error) {
+	projects, err := service.NSXClient.ProjectClient.List(org, nil, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	for _, project := range projects.Results {
+		if project.Default != nil && *project.Default {
+			return *project.Id, nil
+		}
+	}
+	log.Error(nil, "Failed to find NSX default Project")
+	return "", fmt.Errorf("failed to find NSX default Project")
+}
+
+// GetSharedSubnetPath generates Subnet Path for shared Subnet
+func (service *SubnetService) GetSharedSubnetPath(subnet *v1alpha1.Subnet) (string, error) {
 	anno := subnet.GetAnnotations()
 	associatedResource, ok := anno[common.AnnotationAssociatedResource]
 	if !ok {
-		return nil, fmt.Errorf("no associated resource annotation in Shared Subnet %s/%s", subnet.Namespace, subnet.Name), false
+		return "", fmt.Errorf("no associated resource annotation in Shared Subnet %s/%s", subnet.Namespace, subnet.Name)
 	}
 	// associatedResource has the format projectID:vpcID:subnetID or :vpcID:subnetID for default project
 	parts := strings.Split(associatedResource, ":")
 	if len(parts) != 3 {
-		return nil, fmt.Errorf("failed to parse associated resource annotation %s", associatedResource), false
-	}
-	if parts[0] == "" {
-		nc, err := service.vpcService.GetDefaultNetworkConfig()
-		if err != nil {
-			return nil, err, true
-		}
-		_, defaultProject, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
-		if err != nil {
-			return nil, err, false
-		}
-		parts[0] = defaultProject
+		return "", fmt.Errorf("failed to parse associated resource annotation %s", associatedResource)
 	}
 	vpcInfoList := service.vpcService.ListVPCInfo(subnet.Namespace)
 	if len(vpcInfoList) == 0 {
-		return nil, fmt.Errorf("failed to get VPC Info for Namespace %s", subnet.Namespace), true
+		return "", fmt.Errorf("failed to get VPC Info for Namespace %s", subnet.Namespace)
 	}
-	nsxSubnet, err := service.NSXClient.SubnetsClient.Get(vpcInfoList[0].OrgID, parts[0], parts[1], parts[2])
-	if err != nil {
-		err = nsxutil.TransNSXApiError(err)
-		return nil, err, true
+	if parts[0] == "" {
+		defaultProjectId, err := service.getDefaultNSXProject(vpcInfoList[0].OrgID)
+		if err != nil {
+			return "", err
+		}
+		parts[0] = defaultProjectId
 	}
-	return &nsxSubnet, nil, false
+	return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/subnets/%s", vpcInfoList[0].OrgID, parts[0], parts[1], parts[2]), nil
 }

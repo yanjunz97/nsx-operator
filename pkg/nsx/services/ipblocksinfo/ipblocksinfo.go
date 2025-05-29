@@ -309,6 +309,8 @@ func isDefaultNetworkConfigCR(vpcConfigCR v1alpha1.VPCNetworkConfiguration) bool
 	return false
 }
 
+// TODO: update deprecated Cidr to CidrList after NSX finishes the implementation
+// nolint: staticcheck
 func (s *IPBlocksInfoService) getIPBlockCIDRsFromStore(pathSet sets.Set[string], ipBlockStore *IPBlockStore) ([]string, error) {
 	ipCIDRs := []string{}
 	for path := range pathSet {
