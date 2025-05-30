@@ -818,15 +818,12 @@ func TestSubnetService_GetSharedSubnetPath(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:        "subnet-1",
 					Namespace:   "ns-1",
-					Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
+					Annotations: map[string]string{common.AnnotationAssociatedResource: "project-1:ns-1:subnet-1"},
 				},
 			},
 			patches: func(t *testing.T) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.vpcService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
 					return nil
-				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(service), "getDefaultNSXProject", func(_ *SubnetService, org string) (string, error) {
-					return "default", nil
 				})
 				return patches
 			},
@@ -838,15 +835,12 @@ func TestSubnetService_GetSharedSubnetPath(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:        "subnet-1",
 					Namespace:   "ns-1",
-					Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
+					Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-1:subnet-1"},
 				},
 			},
 			patches: func(t *testing.T) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.vpcService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
 					return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "project-1", VPCID: "ns-2", ID: "ns-2"}}
-				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(service), "getDefaultNSXProject", func(_ *SubnetService, org string) (string, error) {
-					return "default", nil
 				})
 				return patches
 			},

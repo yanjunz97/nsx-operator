@@ -113,8 +113,6 @@ func getDefaultIPBlocksCidrs(t *testing.T) (privateTGWIPCIDRs []string, external
 	require.NoError(t, err)
 	res := transSearchResponsetoIPBlock(results)
 	count := 0
-	// TODO: update deprecated Cidr to CidrList after NSX finishes the implementation
-	// nolint: staticcheck
 	for _, ipblock := range res {
 		if count >= 2 {
 			break
