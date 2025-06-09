@@ -658,16 +658,8 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			err = fmt.Errorf("subnet %s is being deleted, cannot operate subnetport %s", namespacedName, subnetPort.Name)
 			return
 		}
-		subnetList := r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetCRUID, string(subnet.GetUID()))
-		if len(subnetList) == 0 {
-			err = fmt.Errorf("empty NSX resource path for subnet CR %s(%s)", subnet.Name, subnet.GetUID())
-			return
-		} else if len(subnetList) > 1 {
-			err = fmt.Errorf("multiple NSX subnets found for subnet CR %s(%s)", subnet.Name, subnet.GetUID())
-			log.Error(err, "failed to get NSX subnet by subnet CR UID", "subnetList", subnetList)
-			return
-		}
-		nsxSubnet := subnetList[0]
+		var nsxSubnet *model.VpcSubnet
+		nsxSubnet, err = r.SubnetService.GetSubnetByCR(subnet)
 		if !r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet) {
 			err = fmt.Errorf("no valid IP in Subnet %s", *nsxSubnet.Path)
 			return

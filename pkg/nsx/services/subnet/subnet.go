@@ -330,13 +330,45 @@ func (service *SubnetService) GetSubnetByKey(key string) (*model.VpcSubnet, erro
 }
 
 func (service *SubnetService) GetSubnetByPath(path string) (*model.VpcSubnet, error) {
-	pathSlice := strings.Split(path, "/")
-	if len(pathSlice) == 0 {
-		return nil, fmt.Errorf("invalid path '%s' while getting subnet", path)
+	info, err := common.ParseVPCResourcePath(path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path '%s' while getting Subnet", path)
 	}
-	key := pathSlice[len(pathSlice)-1]
-	nsxSubnet, err := service.GetSubnetByKey(key)
-	return nsxSubnet, err
+	nsxSubnet := service.SubnetStore.GetByKey(info.ID)
+	if nsxSubnet != nil {
+		return nsxSubnet, nil
+	}
+	// If the Subnet is not in SubnetStore, it might be a precreated Subnet.
+	// Try to get it from precreated Subnet cache
+	associatedResource, err := common.ConvertSubnetPathToAssociatedResource(path)
+	if err != nil {
+		return nil, err
+	}
+	service.nsxSubnetCacheMutex.RLock()
+	cachedData, exists := service.NSXSubnetCache[associatedResource]
+	service.nsxSubnetCacheMutex.RUnlock()
+
+	if exists && cachedData.Subnet != nil {
+		return cachedData.Subnet, nil
+	}
+	return nil, errors.New("NSX Subnet not found in store")
+}
+
+func (service *SubnetService) GetSubnetByCR(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error) {
+	if common.IsSharedSubnet(subnet) {
+		return service.GetNSXSubnetFromCacheOrAPI(subnet.Annotations[common.AnnotationAssociatedResource],
+			types.NamespacedName{Namespace: subnet.Namespace, Name: subnet.Name})
+	}
+	subnetList := service.GetSubnetsByIndex(common.TagScopeSubnetCRUID, string(subnet.GetUID()))
+	if len(subnetList) == 0 {
+		err := fmt.Errorf("empty NSX resource path for Subnet CR %s(%s)", subnet.Name, subnet.GetUID())
+		return nil, err
+	} else if len(subnetList) > 1 {
+		err := fmt.Errorf("multiple NSX subnets found for Subnet CR %s(%s)", subnet.Name, subnet.GetUID())
+		log.Error(err, "failed to get NSX Subnet by Subnet CR UID", "subnetList", subnetList)
+		return nil, err
+	}
+	return subnetList[0], nil
 }
 
 func (service *SubnetService) ListSubnetSetIDsFromNSXSubnets() sets.Set[string] {
@@ -625,7 +657,7 @@ func (service *SubnetService) GetNSXSubnetFromCacheOrAPI(associatedResource stri
 	service.nsxSubnetCacheMutex.RUnlock()
 
 	if exists && cachedData.Subnet != nil {
-		log.Info("Found NSX subnet in cache", "Subnet", namespacedName, "AssociatedResource", associatedResource)
+		log.V(1).Info("Found NSX subnet in cache", "Subnet", namespacedName, "AssociatedResource", associatedResource)
 		return cachedData.Subnet, nil
 	}
 

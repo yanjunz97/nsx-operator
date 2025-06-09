@@ -29,6 +29,7 @@ type SubnetServiceProvider interface {
 	GetSubnetByKey(key string) (*model.VpcSubnet, error)
 	GetSubnetByPath(path string) (*model.VpcSubnet, error)
 	GetSubnetsByIndex(key, value string) []*model.VpcSubnet
+	GetSubnetByCR(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error)
 	CreateOrUpdateSubnet(obj client.Object, vpcInfo VPCResourceInfo, tags []model.Tag) (*model.VpcSubnet, error)
 	GenerateSubnetNSTags(obj client.Object) []model.Tag
 	ListSubnetByName(ns, name string) []*model.VpcSubnet

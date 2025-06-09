@@ -100,6 +100,10 @@ func (m *MockSubnetServiceProvider) ListSubnetBySubnetSetName(ns, subnetSetName 
 	return []*model.VpcSubnet{}
 }
 
+func (m *MockSubnetServiceProvider) GetSubnetByCR(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error) {
+	return nil, nil
+}
+
 type MockSubnetPortServiceProvider struct {
 	mock.Mock
 }
