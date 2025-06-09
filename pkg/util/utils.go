@@ -238,6 +238,10 @@ func GetSubnetMask(subnetLength int) (string, error) {
 func CalculateIPFromCIDRs(IPAddresses []string) (int, error) {
 	total := 0
 	for _, addr := range IPAddresses {
+		parts := strings.Split(addr, "/")
+		if len(parts) < 2 {
+			return -1, fmt.Errorf("invalid cidr %s", addr)
+		}
 		mask, err := strconv.Atoi(strings.Split(addr, "/")[1])
 		if err != nil {
 			return -1, err

@@ -1061,3 +1061,106 @@ func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 	err = r.RestoreReconcile()
 	assert.Contains(t, err.Error(), "failed to restore Subnet ns-1/subnet-1")
 }
+
+func TestSubnetReconcile_GetSubnetSize(t *testing.T) {
+	r := createFakeSubnetReconciler([]client.Object{})
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name         string
+		subnetCR     *v1alpha1.Subnet
+		prefunc      func() *gomonkey.Patches
+		expectedSize int
+		expectedErr  string
+	}{
+		{
+			name: "GetSizeFromCIDR",
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns-1",
+					Name:      "subnet-1",
+				},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"10.0.0.0/28"},
+				},
+			},
+			expectedSize: 16,
+		},
+		{
+			name: "GetSizeFromInvalidCIDR",
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns-1",
+					Name:      "subnet-1",
+				},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"10.0.0.0"},
+				},
+			},
+			expectedErr: "failed to parse IPAddresses",
+		},
+		{
+			name: "GetSizeFromConfig",
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns-1",
+					Name:      "subnet-1",
+				},
+			},
+			prefunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return &v1alpha1.VPCNetworkConfiguration{
+						Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32},
+					}, nil
+				})
+				return patches
+			},
+			expectedSize: 32,
+		},
+		{
+			name: "FailToGetNetworkConfig",
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns-1",
+					Name:      "subnet-1",
+				},
+			},
+			prefunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return nil, fmt.Errorf("mock error")
+				})
+				return patches
+			},
+			expectedErr: "mock error",
+		},
+		{
+			name: "InvalidNetworkConfig",
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns-1",
+					Name:      "subnet-1",
+				},
+			},
+			prefunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return nil, nil
+				})
+				return patches
+			},
+			expectedErr: "VPCNetworkConfig not found for Subnet CR",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.prefunc != nil {
+				patches := tc.prefunc()
+				defer patches.Reset()
+			}
+			size, err := r.getSubnetSize(ctx, tc.subnetCR)
+			if tc.expectedErr != "" {
+				assert.Contains(t, err.Error(), tc.expectedErr)
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, tc.expectedSize, size)
+			}
+		})
+	}
+}

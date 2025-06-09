@@ -30,6 +30,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -127,17 +128,11 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	if subnetCR.Spec.IPv4SubnetSize == 0 {
-		vpcNetworkConfig, err := r.VPCService.GetVPCNetworkConfigByNamespace(subnetCR.Namespace)
+		size, err := r.getSubnetSize(ctx, subnetCR)
 		if err != nil {
-			log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", subnetCR.Namespace)
 			return ResultRequeue, nil
 		}
-		if vpcNetworkConfig == nil {
-			err := fmt.Errorf("VPCNetworkConfig not found for Subnet CR")
-			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to find VPCNetworkConfig", setSubnetReadyStatusFalse)
-			return ResultRequeue, nil
-		}
-		subnetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
+		subnetCR.Spec.IPv4SubnetSize = size
 		specChanged = true
 	}
 	if specChanged {
@@ -175,6 +170,29 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 	r.StatusUpdater.UpdateSuccess(ctx, subnetCR, setSubnetReadyStatusTrue)
 	return ctrl.Result{}, nil
+}
+
+func (r *SubnetReconciler) getSubnetSize(ctx context.Context, subnetCR *v1alpha1.Subnet) (int, error) {
+	if len(subnetCR.Spec.IPAddresses) > 0 && len(subnetCR.Spec.IPAddresses[0]) > 0 {
+		size, err := util.CalculateIPFromCIDRs(subnetCR.Spec.IPAddresses)
+		if err != nil {
+			log.Error(err, "Failed to parse IPAddresses", "IPAddresses", subnetCR.Spec.IPAddresses)
+			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to parse IPAddresses", setSubnetReadyStatusFalse)
+			return -1, fmt.Errorf("failed to parse IPAddresses %s: %w", subnetCR.Spec.IPAddresses, err)
+		}
+		return size, nil
+	}
+	vpcNetworkConfig, err := r.VPCService.GetVPCNetworkConfigByNamespace(subnetCR.Namespace)
+	if err != nil {
+		log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", subnetCR.Namespace)
+		return -1, err
+	}
+	if vpcNetworkConfig == nil {
+		err := fmt.Errorf("VPCNetworkConfig not found for Subnet CR")
+		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to find VPCNetworkConfig", setSubnetReadyStatusFalse)
+		return -1, err
+	}
+	return vpcNetworkConfig.Spec.DefaultSubnetSize, nil
 }
 
 func (r *SubnetReconciler) deleteSubnetByID(subnetID string) error {
