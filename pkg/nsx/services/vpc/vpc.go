@@ -34,7 +34,7 @@ const (
 )
 
 var (
-	log                           = &logger.Log
+	log                           = &logger.CustomLog
 	ResourceTypeVPC               = common.ResourceTypeVpc
 	NewConverter                  = common.NewConverter
 	globalLbProvider              = NoneLB
@@ -602,7 +602,7 @@ func (s *VPCService) createNSXVPC(createdVpc *model.Vpc, nc *v1alpha1.VPCNetwork
 }
 
 func (s *VPCService) checkVPCRealizationState(createdVpc *model.Vpc, newVpcPath string) error {
-	log.V(2).Info("Check VPC realization state", "VPC", *createdVpc.Id)
+	log.Debug("Check VPC realization state", "VPC", *createdVpc.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
 	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, newVpcPath, []string{common.GatewayInterfaceId}); err != nil {
 		log.Error(err, "Failed to check VPC realization state", "VPC", *createdVpc.Id)
@@ -638,7 +638,7 @@ func (s *VPCService) checkLBSRealization(createdLBS *model.LBService, createdVpc
 	}
 	s.LbsStore.Add(&newLBS)
 
-	log.V(2).Info("Check LBS realization state", "LBS", *createdLBS.Id)
+	log.Debug("Check LBS realization state", "LBS", *createdLBS.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
 	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *newLBS.Path, []string{}); err != nil {
 		log.Error(err, "Failed to check LBS realization state", "LBS", *createdLBS.Id)
@@ -672,7 +672,7 @@ func (s *VPCService) checkVpcAttachmentRealization(createdAttachment *model.VpcA
 		}
 		return err
 	}
-	log.V(2).Info("Check VPC attachment realization state", "VpcAttachment", *createdAttachment.Id)
+	log.Debug("Check VPC attachment realization state", "VpcAttachment", *createdAttachment.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
 	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *newAttachment.Path, []string{}); err != nil {
 		log.Error(err, "Failed to check VPC attachment realization state", "VpcAttachment", *createdAttachment.Id)
@@ -812,7 +812,7 @@ func (s *VPCService) GetVpcConnectivityProfileWithRetry(nc *v1alpha1.VPCNetworkC
 		if getErr != nil {
 			return getErr
 		}
-		log.V(1).Info("VPC connectivity profile retrieved", "profile", *vpcConnectivityProfile)
+		log.Debug("VPC connectivity profile retrieved", "profile", *vpcConnectivityProfile)
 		return nil
 	}); err != nil {
 		log.Error(err, "Failed to retrieve VPC connectivity profile", "profile", nc.Spec.VPCConnectivityProfile)
@@ -843,7 +843,7 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 	lbProviderMutex.Lock()
 	defer lbProviderMutex.Unlock()
 	if globalLbProvider != NoneLB {
-		log.V(1).Info("LB provider", "current provider", globalLbProvider)
+		log.Debug("LB provider", "current provider", globalLbProvider)
 		return globalLbProvider, nil
 	}
 
@@ -931,7 +931,7 @@ func (s *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
 	}
 
 	if len(lbs.Results) == 0 {
-		log.V(1).Info("No NSX LB", "VPC Path", vpcPath)
+		log.Warn("No NSX LB", "VPC Path", vpcPath)
 		return "", nil
 	}
 	lbsPath := *lbs.Results[0].Path
@@ -950,7 +950,7 @@ func (s *VPCService) GetAllVPCsFromNSX() map[string]model.Vpc {
 	if searchErr != nil {
 		log.Error(searchErr, "Failed to query VPC from NSX", "query", query)
 	} else {
-		log.V(1).Info("Query VPC", "count", count)
+		log.Debug("Query VPC", "count", count)
 	}
 	vpcMap := make(map[string]model.Vpc)
 	for _, obj := range store.List() {
