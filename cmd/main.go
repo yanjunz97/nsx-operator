@@ -284,6 +284,12 @@ func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
 }
 
 func main() {
+	log.V(3).Info("test level 3 log")
+	log.V(2).Info("test level 2 log")
+	log.Debug("test debug log")
+	log.Info("test info log")
+	log.Warn("test warn log")
+	log.Error(nil, "test error log")
 	log.Info("Starting NSX Operator")
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,

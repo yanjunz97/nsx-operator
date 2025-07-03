@@ -41,19 +41,22 @@ func (l *CustomLogger) Error(err error, msg string, keysAndValues ...interface{}
 // Warn logs a warning message with the given key-value pairs
 func (l *CustomLogger) Warn(msg string, keysAndValues ...interface{}) {
 	// Use V(0) instead of V(1) to ensure warnings are displayed at log level 0
-	// Adds a special prefix to the message that can be detected by the FilteredCore implementation
-	l.logger.V(0).Info(warnPrefix+msg, keysAndValues...)
+	l.logger.V(0).Info(msg, keysAndValues...)
 }
 
 // Info logs an info message with the given key-value pairs
 func (l *CustomLogger) Info(msg string, keysAndValues ...interface{}) {
-	l.logger.Info(msg, keysAndValues...)
+	l.logger.V(1).Info(msg, keysAndValues...)
 }
 
 // Debug logs a debug message with the given key-value pairs
 func (l *CustomLogger) Debug(msg string, keysAndValues ...interface{}) {
-	// Don't know why l.logger.V(-1).Info is not working as Debug, hack it
-	l.logger.V(-1).Info(debugPrefix+msg, keysAndValues...)
+	l.logger.V(2).Info(msg, keysAndValues...)
+}
+
+// V returns a logger with the specified verbosity level
+func (l *CustomLogger) V(level int) logr.Logger {
+	return l.logger.V(level)
 }
 
 var (
@@ -68,11 +71,11 @@ var (
 		enc.AppendString(colorYellow + caller.TrimmedPath() + colorReset)
 	}
 	customLevelEncoder = func(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
-		if level == -2 { // weird, -1 not works
+		if level == -2 {
 			enc.AppendString(colorPurple + "DEBUG" + colorReset)
-		} else if level == zapcore.InfoLevel {
+		} else if level == -1 {
 			enc.AppendString(colorGreen + "INFO" + colorReset)
-		} else if level == zapcore.WarnLevel {
+		} else if level == 0 {
 			enc.AppendString(colorOrange + "WARN" + colorReset)
 		} else if level == zapcore.ErrorLevel {
 			enc.AppendString(colorRed + "ERROR" + colorReset)
@@ -137,8 +140,12 @@ func filterRecorderLogs(entry zapcore.Entry) bool {
 
 func ZapLogger(cfDebug bool, cfLogLevel int) logr.Logger {
 	logLevel := cfLogLevel
-	if cfDebug {
-		logLevel = 0
+	if cfDebug && logLevel < 1 {
+		logLevel = 1
+	}
+	zapLogLevel := -1*logLevel - 1
+	if logLevel >= 2 {
+		zapLogLevel = -1 * logLevel
 	}
 
 	encoderConf := zapcore.EncoderConfig{
@@ -158,7 +165,7 @@ func ZapLogger(cfDebug bool, cfLogLevel int) logr.Logger {
 	baseCore := zapcore.NewCore(
 		zapcore.NewConsoleEncoder(encoderConf),
 		zapcore.AddSync(zapcore.Lock(os.Stdout)),
-		zapcore.Level(logLevel-1),
+		zapcore.Level(zapLogLevel),
 	)
 
 	filteredCore := &FilteredCore{
