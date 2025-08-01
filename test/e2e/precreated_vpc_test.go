@@ -8,10 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -80,8 +83,16 @@ func TestPreCreatedVPC(t *testing.T) {
 		require.NoError(t, err, "Pre-Created VPC should exist after the K8s Namespace is deleted")
 	}()
 	// Wait until the created NetworkInfo is ready.
-	getNetworkInfoWithPrivateIPs(t, nsName, nsName)
+	networkinfo := getNetworkInfoWithCondition(t, nsName, nsName, func(networkInfo *v1alpha1.NetworkInfo) (bool, error) {
+		if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].LoadBalancerIPAddresses) > 0 &&
+			len(networkInfo.VPCs[0].DefaultSNATIP) > 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
+			return true, nil
+		}
+		return false, nil
+	})
 	log.Info("New Namespace's networkInfo is ready", "Namespace", nsName)
+	assert.True(t, len(networkinfo.VPCs[0].DefaultSNATIP) > 0, "defaultSNATIP should be updated")
+	assert.True(t, len(networkinfo.VPCs[0].LoadBalancerIPAddresses) > 0, "loadBalancerIPAddresses should be updated")
 
 	// Test create LB Service inside the NS
 	podName := "prevpc-service-pod"
@@ -132,6 +143,75 @@ func TestPreCreatedVPC(t *testing.T) {
 	err = testData.waitForLBVSDeletion(resourceReadyTime, string(svcUID))
 	require.NoErrorf(t, err, "NSX resources should be removed after K8s LoadBalancer Service is deleted")
 	log.Info("NSX resources for the LoadBalancer Service are removed")
+
+	// Test precreated VPC without LB
+	err = testData.nsxClient.VPCLBSClient.Delete(orgID, projectID, vpcID, "default", common.Bool(true))
+	require.NoError(t, err, "Failed to delete LBs")
+	err = testData.restartNcp()
+	require.NoError(t, err, "Failed to restart NCP")
+	getNetworkInfoWithCondition(t, nsName, nsName, func(networkInfo *v1alpha1.NetworkInfo) (bool, error) {
+		if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].LoadBalancerIPAddresses) == 0 &&
+			len(networkInfo.VPCs[0].DefaultSNATIP) > 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
+			return true, nil
+		}
+		return false, nil
+	})
+	log.Info("Removed LBs from precreated VPC")
+
+	// Test Pod can be created without LB
+	podVmName := "prevpc-podvm"
+	_, err = testData.createPod(nsName, podVmName, containerName, podImage, corev1.ProtocolTCP, podPort, func(pod *corev1.Pod) {
+		pod.Spec.Containers[0].ImagePullPolicy = corev1.PullAlways
+	})
+	require.NoErrorf(t, err, "Pod '%s/%s' should be created", nsName, podVmName)
+	_, err = testData.podWaitForIPs(resourceReadyTime, podVmName, nsName)
+	require.NoErrorf(t, err, "Pod '%s/%s' is not ready within time %s", nsName, podVmName, resourceReadyTime.String())
+	log.Info("Pod in the Namespace is ready", "Namespace", nsName, "Pod", podVmName)
+
+	// Delete pods before removing SNAT
+	err = testData.deletePod(nsName, podName)
+	require.NoError(t, err, "Failed to delete pod %s", podName)
+	err = testData.deletePod(nsName, clientPodName)
+	require.NoError(t, err, "Failed to delete pod %s", clientPodName)
+	err = testData.deletePod(nsName, podVmName)
+	require.NoError(t, err, "Failed to delete pod %s", podVmName)
+
+	// Test precreated VPC without NAT
+	waitSubnetDeletedInSubnetSet(t, nsName, common.DefaultPodSubnetSet)
+	err = testData.nsxClient.VpcAttachmentClient.Delete(orgID, projectID, vpcID, "default")
+	require.NoError(t, err, "Failed to delete VPC attachment")
+	err = testData.restartNcp()
+	require.NoError(t, err, "Failed to restart NCP")
+	getNetworkInfoWithCondition(t, nsName, nsName, func(networkInfo *v1alpha1.NetworkInfo) (bool, error) {
+		if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].LoadBalancerIPAddresses) == 0 &&
+			len(networkInfo.VPCs[0].DefaultSNATIP) == 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
+			return true, nil
+		}
+		return false, nil
+	})
+	log.Info("Removed SNAT from precreated VPC")
+}
+
+func waitSubnetDeletedInSubnetSet(t *testing.T, ns, subnetSetName string) (res *v1alpha1.SubnetSet) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, 10*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		res, err = testData.crdClientset.CrdV1alpha1().SubnetSets(ns).Get(context.Background(), subnetSetName, v1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			log.Error(err, "SubnetSet", res, "Namespace", ns, "Name", subnetSetName)
+			return false, fmt.Errorf("error when waiting for SubnetSet %s", subnetSetName)
+		}
+		log.V(2).Info("SubnetSets status", "status", res.Status)
+		if len(res.Status.Subnets) == 0 {
+			return true, nil
+		}
+		return false, nil
+	})
+	require.NoError(t, err)
+	return
 }
 
 func deleteVPCNamespace(nsName string, usingVCAPI bool) {

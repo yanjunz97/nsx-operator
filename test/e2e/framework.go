@@ -45,9 +45,12 @@ import (
 var log = &logger.Log
 
 const (
-	createVCNamespaceEndpoint = "/api/vcenter/namespaces/instances/v2"
-	defaultTimeout            = 600 * time.Second
-	PolicyAPI                 = "policy/api/v1"
+	createVCNamespaceEndpoint   = "/api/vcenter/namespaces/instances/v2"
+	defaultTimeout              = 600 * time.Second
+	PolicyAPI                   = "policy/api/v1"
+	ncpNamespace                = "vmware-system-nsx"
+	ncpName                     = "nsx-ncp"
+	deploymentRestartAnnotation = "kubectl.kubernetes.io/restartedAt"
 )
 
 type Status int
@@ -278,6 +281,40 @@ func collectClusterInfo() error {
 	}
 
 	return nil
+}
+
+func (data *TestData) restartNcp() error {
+	deployment, err := data.clientset.AppsV1().Deployments(ncpNamespace).Get(context.TODO(), ncpName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get NCP deployment %s", err)
+	}
+	anno := deployment.Spec.Template.ObjectMeta.Annotations
+	if anno == nil {
+		anno = make(map[string]string)
+	}
+	anno[deploymentRestartAnnotation] = time.Now().Format(time.RFC3339)
+	_, err = data.clientset.AppsV1().Deployments(ncpNamespace).Update(context.TODO(), deployment, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update NCP deployment %s", err)
+	}
+	return wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
+		deployment, err := data.clientset.AppsV1().Deployments(ncpNamespace).Get(context.TODO(), ncpName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		replicas := int32(1)
+		if deployment.Spec.Replicas != nil {
+			replicas = *deployment.Spec.Replicas
+		}
+		if deployment.Generation <= deployment.Status.ObservedGeneration &&
+			deployment.Status.UpdatedReplicas == replicas &&
+			deployment.Status.ReadyReplicas == replicas &&
+			deployment.Status.AvailableReplicas == replicas {
+			return true, nil
+		}
+		return false, nil
+	})
 }
 
 // createNamespace creates the provided namespace.
@@ -947,6 +984,15 @@ func (data *TestData) deleteService(nsName string, svcName string) error {
 	err := data.clientset.CoreV1().Services(nsName).Delete(ctx, svcName, metav1.DeleteOptions{})
 	if err != nil {
 		log.Error(err, "Failed to delete Service", "namespace", nsName, "name", svcName)
+	}
+	return err
+}
+
+func (data *TestData) deletePod(nsName string, podName string) error {
+	ctx := context.TODO()
+	err := data.clientset.CoreV1().Pods(nsName).Delete(ctx, podName, metav1.DeleteOptions{})
+	if err != nil {
+		log.Error(err, "Failed to delete Pod", "Namespace", nsName, "Name", podName)
 	}
 	return err
 }
