@@ -5,7 +5,6 @@ package pod
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"reflect"
@@ -97,8 +96,9 @@ func updatePodStatusConditions(client client.Client, ctx context.Context, pod *v
 		err := client.Status().Update(ctx, pod)
 		if err != nil {
 			log.Error(err, "Failed to update Pod status", "Name", pod.Name, "Namespace", pod.Namespace)
+			return
 		}
-		log.Trace("Updated pod", "Name", pod.Name, "Namespace", pod.Namespace,
+		log.Debug("Updated Pod", "Name", pod.Name, "Namespace", pod.Namespace,
 			"New Conditions", newConditions)
 	}
 }
@@ -144,13 +144,13 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		if apierrors.IsNotFound(err) {
 			if err := r.deleteSubnetPortByPodName(ctx, req.Namespace, req.Name); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-				return common.ResultRequeue, err
+				return common.ResultNormal, err
 			}
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return common.ResultNormal, nil
 		}
 		log.Error(err, "Unable to fetch Pod", "Pod", req.NamespacedName)
-		return common.ResultRequeue, err
+		return common.ResultNormal, err
 	}
 	if len(pod.Spec.NodeName) == 0 {
 		log.Info("Pod is not scheduled on Node yet, skipping", "Pod", req.NamespacedName)
@@ -163,7 +163,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		if err != nil {
 			log.Error(err, "Failed to get NSX resource path from Subnet", "pod.Name", pod.Name, "pod.UID", pod.UID)
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", setPodReadyStatusFalse)
-			return common.ResultRequeue, err
+			return common.ResultNormal, err
 		}
 		if !isExisting {
 			defer r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath)
@@ -172,19 +172,19 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		node, err := r.GetNodeByName(pod.Spec.NodeName)
 		if err != nil {
 			// The error at the very beginning of the operator startup is expected because at that time the node may be not cached yet. We can expect the retry to become normal.
-			log.Error(err, "Failed to get Node ID for Pod", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "node", pod.Spec.NodeName)
-			return common.ResultRequeue, err
+			log.Warn("Failed to get Node ID for Pod", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "node", pod.Spec.NodeName, "error", err)
+			return common.ResultNormal, err
 		}
 		contextID := *node.UniqueId
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, false)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", setPodReadyStatusFalse)
-			return common.ResultRequeue, err
+			return common.ResultNormal, err
 		}
 		nsxSubnetPortState, _, err := r.SubnetPortService.CreateOrUpdateSubnetPort(pod, nsxSubnet, contextID, &pod.ObjectMeta.Labels, false, r.restoreMode)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", setPodReadyStatusFalse)
-			return common.ResultRequeue, err
+			return common.ResultNormal, err
 		}
 		if nsxSubnetPortState != nil && len(nsxSubnetPortState.RealizedBindings) > 0 &&
 			nsxSubnetPortState.RealizedBindings[0].Binding != nil &&
@@ -211,12 +211,12 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		subnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(pod.GetUID())
 		if err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, pod, err)
-			return common.ResultRequeue, err
+			return common.ResultNormal, err
 		}
 		if subnetPort != nil {
 			if err := r.SubnetPortService.DeleteSubnetPort(subnetPort); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, pod, err)
-				return common.ResultRequeue, err
+				return common.ResultNormal, err
 			}
 		}
 
@@ -267,7 +267,7 @@ func (r *PodReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in Pod restore: %v", errorList)
 	}
 	return nil
 }
@@ -291,7 +291,7 @@ func (r *PodReconciler) getRestoreList() ([]types.NamespacedName, error) {
 
 func (r *PodReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
 	if err := r.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "Pod")
+		log.Error(err, "Failed to create controller", "controller", "Pod")
 		return err
 	}
 	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
@@ -331,7 +331,7 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 	podList := &v1.PodList{}
 	err := r.Client.List(ctx, podList)
 	if err != nil {
-		log.Error(err, "failed to list Pod")
+		log.Error(err, "Failed to list Pod")
 		return err
 	}
 

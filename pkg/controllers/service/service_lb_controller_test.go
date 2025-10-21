@@ -191,7 +191,7 @@ func TestServiceLbReconciler_Reconcile(t *testing.T) {
 	errNotFound := errors.New("not found")
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(errNotFound)
 	_, err := r.Reconcile(ctx, req)
-	assert.Equal(t, err, errNotFound)
+	assert.Nil(t, err)
 
 	// DeletionTimestamp.IsZero = true and service type is LoadBalancer
 	lbService := &v1.Service{}
@@ -247,7 +247,6 @@ func TestServiceLbReconciler_StartController(t *testing.T) {
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(os.Exit, func(code int) {
 					assert.FailNow(t, "os.Exit should not be called")
-					return
 				})
 				patches.ApplyFunc(isServiceLbStatusIpModeSupported, func(c *rest.Config) bool {
 					return true
@@ -263,7 +262,6 @@ func TestServiceLbReconciler_StartController(t *testing.T) {
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(os.Exit, func(code int) {
-					return
 				})
 				patches.ApplyFunc(isServiceLbStatusIpModeSupported, func(c *rest.Config) bool {
 					return true

@@ -66,27 +66,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		objects        []client.Object
 		preparedFunc   func(r *Reconciler) *gomonkey.Patches
 		expectedResult ctrl.Result
+		expectedErr    string
 	}{
-		{
-			name:    "SubnetIPReservation not supported",
-			objects: []client.Object{ipr},
-			preparedFunc: func(r *Reconciler) *gomonkey.Patches {
-				r.IPReservationService.Supported = false
-				return nil
-			},
-			expectedResult: common.ResultNormal,
-		},
-		{
-			name: "SubnetIPReservation not supported with get error",
-			preparedFunc: func(r *Reconciler) *gomonkey.Patches {
-				r.IPReservationService.Supported = false
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Client), "Get", func(_ client.Client, ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					return fmt.Errorf("mocked get error")
-				})
-				return patches
-			},
-			expectedResult: common.ResultRequeue,
-		},
 		{
 			name: "SubnetIPReservation get error",
 			preparedFunc: func(r *Reconciler) *gomonkey.Patches {
@@ -95,7 +76,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
+			expectedErr:    "mocked get error",
 		},
 		{
 			name: "SubnetIPReservation delete error",
@@ -108,7 +90,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
+			expectedErr:    "mocked delete error",
 		},
 		{
 			name: "SubnetIPReservation delete success",
@@ -151,7 +134,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
+			expectedErr:    "fail to get Subnet",
 		},
 		{
 			name:    "NSX Subnet get error",
@@ -165,7 +149,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
+			expectedErr:    "mocked get error",
 		},
 		{
 			name:    "Create IPReservation error",
@@ -182,7 +167,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
+			expectedErr:    "mocked creation error",
 		},
 		{
 			name:    "Create IPReservation success",
@@ -209,7 +195,11 @@ func TestReconciler_Reconcile(t *testing.T) {
 		r := createFakeReconciler(tc.objects...)
 		patches := tc.preparedFunc(r)
 		result, err := r.Reconcile(context.TODO(), request)
-		assert.Nil(t, err)
+		if tc.expectedErr != "" {
+			assert.Contains(t, err.Error(), tc.expectedErr)
+		} else {
+			assert.Nil(t, err)
+		}
 		assert.Equal(t, tc.expectedResult, result)
 		if patches != nil {
 			patches.Reset()

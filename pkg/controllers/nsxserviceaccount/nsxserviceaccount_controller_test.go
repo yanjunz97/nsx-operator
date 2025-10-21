@@ -150,7 +150,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			args:    requestArgs,
-			want:    ResultRequeue,
+			want:    ResultNormal,
 			wantErr: true,
 			expectedCR: &nsxvmwarecomv1alpha1.NSXServiceAccount{
 				ObjectMeta: metav1.ObjectMeta{
@@ -192,7 +192,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			args:    requestArgs,
-			want:    ResultRequeue,
+			want:    ResultNormal,
 			wantErr: true,
 			expectedCR: &nsxvmwarecomv1alpha1.NSXServiceAccount{
 				ObjectMeta: metav1.ObjectMeta{
@@ -291,7 +291,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			args:    requestArgs,
-			want:    ResultRequeue,
+			want:    ResultNormal,
 			wantErr: true,
 			expectedCR: &nsxvmwarecomv1alpha1.NSXServiceAccount{
 				ObjectMeta: metav1.ObjectMeta{
@@ -394,7 +394,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			args:    requestArgs,
-			want:    ResultRequeue,
+			want:    ResultNormal,
 			wantErr: true,
 			expectedCR: &nsxvmwarecomv1alpha1.NSXServiceAccount{
 				ObjectMeta: metav1.ObjectMeta{
@@ -437,7 +437,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			args:    requestArgs,
-			want:    ResultRequeue,
+			want:    ResultNormal,
 			wantErr: true,
 			expectedCR: &nsxvmwarecomv1alpha1.NSXServiceAccount{
 				ObjectMeta: metav1.ObjectMeta{
@@ -627,7 +627,6 @@ func TestNSXServiceAccountReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-		return
 	})
 	defer patches.Reset()
 	reconciler := NewNSXServiceAccountReconciler(mockMgr, service)

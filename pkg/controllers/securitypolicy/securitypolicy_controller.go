@@ -44,7 +44,6 @@ import (
 var (
 	log                         = logger.Log
 	ResultNormal                = common.ResultNormal
-	ResultRequeue               = common.ResultRequeue
 	ResultRequeueAfter5mins     = common.ResultRequeueAfter5mins
 	MetricResTypeSecurityPolicy = common.MetricResTypeSecurityPolicy
 )
@@ -92,9 +91,7 @@ func cleanSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1a
 	if securityPolicy.Annotations == nil {
 		return
 	}
-	if _, exists := securityPolicy.Annotations[common.NSXOperatorError]; exists {
-		delete(securityPolicy.Annotations, common.NSXOperatorError)
-	}
+	delete(securityPolicy.Annotations, common.NSXOperatorError)
 
 	var updateErr error
 	if isVPCEnabled {
@@ -129,14 +126,14 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if apierrors.IsNotFound(err) {
 			if err := r.deleteSecurityPolicyByName(req.Namespace, req.Name); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-				return ResultRequeue, err
+				return ResultNormal, err
 			}
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return ResultNormal, nil
 		}
 		// In case that client is unable to check CR
 		log.Error(err, "Failed to fetch SecurityPolicy CR", "req", req.NamespacedName)
-		return ResultRequeue, err
+		return ResultNormal, err
 	}
 
 	isZero := false
@@ -168,7 +165,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if isCRInSysNs, err := util.IsSystemNamespace(r.Client, req.Namespace, nil, vpcMode); err != nil {
 			err = errors.New("fetch namespace associated with security policy CR failed")
 			r.StatusUpdater.UpdateFail(ctx, realObj, err, "", setSecurityPolicyReadyStatusFalse, r.Service)
-			return ResultRequeue, err
+			return ResultNormal, err
 		} else if isCRInSysNs {
 			err = errors.New("security Policy CR cannot be created in System Namespace")
 			r.StatusUpdater.UpdateFail(ctx, realObj, err, "", setSecurityPolicyReadyStatusFalse, r.Service)
@@ -188,7 +185,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				os.Exit(1)
 			}
 			r.StatusUpdater.UpdateFail(ctx, realObj, err, "", setSecurityPolicyReadyStatusFalse, r.Service)
-			return ResultRequeue, err
+			return ResultNormal, err
 		}
 		r.StatusUpdater.UpdateSuccess(ctx, realObj, setSecurityPolicyReadyStatusTrue, r.Service)
 		cleanSecurityPolicyErrorAnnotation(ctx, realObj, securitypolicy.IsVPCEnabled(r.Service), r.Client)
@@ -202,13 +199,13 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "Failed to remove finalizer, would retry exponentially", "securitypolicy", req.NamespacedName)
 				r.StatusUpdater.DeleteFail(req.NamespacedName, realObj, err)
-				return ResultRequeue, err
+				return ResultNormal, err
 			}
 			log.Debug("Removed finalizer", "securitypolicy", req.NamespacedName)
 		}
 		if err := r.Service.DeleteSecurityPolicy(realObj.UID, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, realObj, err)
-			return ResultRequeue, err
+			return ResultNormal, err
 		}
 		r.StatusUpdater.DeleteSuccess(req.NamespacedName, realObj)
 	}
@@ -269,12 +266,14 @@ func updateSecurityPolicyStatusConditions(client client.Client, ctx context.Cont
 			finalObj := securitypolicy.T1ToVPC(secPolicy)
 			err := client.Status().Update(ctx, finalObj)
 			if err != nil {
-				log.Error(err, "")
+				log.Error(err, "Failed to update SecurityPolicy Status", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace)
+				return
 			}
 		} else {
 			err := client.Status().Update(ctx, secPolicy)
 			if err != nil {
-				log.Error(err, "")
+				log.Error(err, "Failed to update SecurityPolicy Status", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace)
+				return
 			}
 		}
 		log.Debug("Updated SecurityPolicy", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace,

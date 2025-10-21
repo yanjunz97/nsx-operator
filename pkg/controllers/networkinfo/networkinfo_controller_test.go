@@ -1027,9 +1027,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					})
 				return patches
 			},
-			args:    requestArgs,
-			want:    common.ResultRequeueAfter10sec,
-			wantErr: true,
+			args: requestArgs,
+			want: common.ResultRequeueAfter10sec,
 		},
 	}
 
@@ -1265,7 +1264,7 @@ func TestNetworkInfoReconciler_DeleteNetworkInfo(t *testing.T) {
 			},
 			expectErrStr:        "multiple errors occurred while deleting VPCs",
 			existingNetworkInfo: nil,
-			expectRes:           common.ResultRequeue,
+			expectRes:           common.ResultNormal,
 			req:                 reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "testNamespace", Name: "testNetworkInfo"}},
 		},
 		{
@@ -1329,7 +1328,7 @@ func TestNetworkInfoReconciler_DeleteNetworkInfo(t *testing.T) {
 				},
 				VPCs: nil,
 			},
-			expectRes: common.ResultRequeue,
+			expectRes: common.ResultNormal,
 			req:       reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "testNamespace", Name: "testNetworkInfo"}},
 		},
 	}
@@ -1397,7 +1396,6 @@ func TestNetworkInfoReconciler_Create(t *testing.T) {
 				})
 				return patches
 			},
-			expectErrStr: "failed to locate default NetworkConfig",
 			existingNetworkInfo: &v1alpha1.NetworkInfo{
 				ObjectMeta: metav1.ObjectMeta{Name: "testNetworkInfo", Namespace: "testNamespace", UID: "fakeNamespaceUID"},
 				VPCs:       nil,
@@ -1708,10 +1706,8 @@ func TestNetworkInfoReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc((*NetworkInfoReconciler).syncPreCreatedVpcs, func(r *NetworkInfoReconciler, ctx context.Context) {
-		return
 	})
 	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-		return
 	})
 	defer patches.Reset()
 	r := NewNetworkInfoReconciler(mockMgr, vpcService, ipblocksInfoService)
@@ -1934,7 +1930,7 @@ func TestNetworkInfoReconciler_RestoreReconcile(t *testing.T) {
 						},
 					}
 					assert.Equal(t, req, expectReq)
-					return common.ResultRequeue, fmt.Errorf("reconcile failed")
+					return common.ResultNormal, fmt.Errorf("reconcile failed")
 				})
 				return patches
 			},

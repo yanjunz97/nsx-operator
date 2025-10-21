@@ -18,7 +18,7 @@ func validateStaticRoute(obj *v1alpha1.StaticRoute) error {
 	for index := range obj.Spec.NextHops {
 		ip := obj.Spec.NextHops[index].IPAddress
 		if _, exist := ipDict[ip]; exist {
-			err := fmt.Errorf("duplicate ip address %s", ip)
+			err := fmt.Errorf("duplicate IP address %s", ip)
 			log.Error(err, "buildStaticRoute")
 			return err
 		}

@@ -29,7 +29,6 @@ import (
 var (
 	log           = logger.Log
 	ResultNormal  = common.ResultNormal
-	ResultRequeue = common.ResultRequeue
 	MetricResType = common.MetricResTypeServiceLb
 )
 
@@ -66,7 +65,7 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ResultNormal, client.IgnoreNotFound(err)
 		}
 		log.Error(err, "Failed to fetch LB service", "req", req.NamespacedName)
-		return common.ResultRequeueAfter10sec, err
+		return common.ResultRequeueAfter10sec, nil
 	}
 
 	if service.Spec.Type == v1.ServiceTypeLoadBalancer {
@@ -79,7 +78,7 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			err := updateSuccess(r, ctx, service)
 			if err != nil {
 				log.Error(err, "Failed to update LB service", "Name", service.Name, "Namespace", service.Namespace)
-				return common.ResultRequeueAfter10sec, err
+				return common.ResultRequeueAfter10sec, nil
 			}
 		}
 	}

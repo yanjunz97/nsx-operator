@@ -39,7 +39,6 @@ import (
 var (
 	log                     = logger.Log
 	ResultNormal            = common.ResultNormal
-	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResType           = common.MetricResTypeNetworkPolicy
 )
@@ -73,9 +72,7 @@ func cleanNetworkPolicyErrorAnnotation(client client.Client, ctx context.Context
 	if networkPolicy.Annotations == nil {
 		return
 	}
-	if _, exists := networkPolicy.Annotations[common.NSXOperatorError]; exists {
-		delete(networkPolicy.Annotations, common.NSXOperatorError)
-	}
+	delete(networkPolicy.Annotations, common.NSXOperatorError)
 	updateErr := client.Update(ctx, networkPolicy)
 	if updateErr != nil {
 		log.Error(updateErr, "Failed to clean NetworkPolicy annotation")
@@ -97,14 +94,14 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if apierrors.IsNotFound(err) {
 			if err := r.deleteNetworkPolicyByName(req.Namespace, req.Name); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-				return ResultRequeue, err
+				return ResultNormal, err
 			}
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return ResultNormal, nil
 		}
 		// In case that client is unable to check CR
 		log.Error(err, "Failed to fetch NetworkPolicy CR", "req", req.NamespacedName)
-		return ResultRequeue, err
+		return ResultNormal, err
 	}
 
 	if networkPolicy.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -123,7 +120,7 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				os.Exit(1)
 			}
 			r.StatusUpdater.UpdateFail(ctx, networkPolicy, err, "", clarifyAndSetNetworkPolicyErrorAnnotation)
-			return ResultRequeue, err
+			return ResultNormal, err
 		}
 		r.StatusUpdater.UpdateSuccess(ctx, networkPolicy, cleanNetworkPolicyErrorAnnotation)
 	} else {
@@ -131,7 +128,7 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.StatusUpdater.IncreaseDeleteTotal()
 		if err := r.deleteNetworkPolicyByName(req.Namespace, req.Name); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-			return ResultRequeue, err
+			return ResultNormal, err
 		}
 		r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 	}

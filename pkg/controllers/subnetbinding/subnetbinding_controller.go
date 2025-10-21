@@ -80,6 +80,7 @@ func NewReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnet
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log.Info("Reconciling SubnetConnectionBindingMap CR", "SubnetConnectionBindingMap", req.NamespacedName)
 	startTime := time.Now()
 	defer func() {
 		log.Info("Finished reconciling SubnetConnectionBindingMap", "SubnetConnectionBindingMap", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
@@ -95,13 +96,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			if err := r.SubnetBindingService.DeleteSubnetConnectionBindingMapsByCRName(req.Name, req.Namespace); err != nil {
 				log.Error(err, "Failed to delete NSX SubnetConnectionBindingMap", "SubnetConnectionBindingMap", req.NamespacedName)
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-				return common.ResultRequeue, nil
+				return common.ResultNormal, err
 			}
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return common.ResultNormal, nil
 		}
 		log.Error(err, "Unable to fetch SubnetConnectionBindingMap CR", "SubnetConnectionBindingMap", req.NamespacedName)
-		return common.ResultRequeue, nil
+		return common.ResultNormal, err
 	}
 
 	// Create or update SubnetConnectionBindingMap
@@ -120,7 +121,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.SubnetBindingService.CreateOrUpdateSubnetConnectionBindingMap(bindingMapCR, childSubnetPath, parentSubnetPaths); err != nil {
 		// Update SubnetConnectionBindingMap with not-ready condition
 		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, err, "failure to configure SubnetConnectionBindingMaps on NSX", updateBindingMapStatusWithUnreadyCondition, "ConfigureFailed", fmt.Sprintf("Failed to realize SubnetConnectionBindingMap %s on NSX", req.Name))
-		return common.ResultRequeue, nil
+		return common.ResultNormal, err
 	}
 	// Update SubnetConnectionBindingMap with ready condition
 	r.StatusUpdater.UpdateSuccess(ctx, bindingMapCR, updateBindingMapStatusWithReadyCondition)
@@ -130,6 +131,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 // CollectGarbage collects the stale SubnetConnectionBindingMaps and deletes them on NSX which have been removed from K8s.
 // It implements the interface GarbageCollector method.
 func (r *Reconciler) CollectGarbage(ctx context.Context) error {
+	log.Info("SubnetConnectionBindingMap garbage collector started")
 	startTime := time.Now()
 	defer func() {
 		log.Info("SubnetConnectionBindingMap garbage collection completed", "duration(ms)", time.Since(startTime).Milliseconds())
@@ -367,11 +369,12 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 	}
 
 	if len(subnetPaths) == 0 {
-		log.Info("NSX VpcSubnets by Subnet CR do not exist", "Subnet", subnetKey.String())
+		err = fmt.Errorf("not found NSX VpcSubnets created by Subnet CR '%s/%s'", namespace, name)
+		log.Error(err, "NSX VpcSubnets by Subnet CR do not exist", "Subnet", subnetKey.String())
 		return nil, subnetCR, &errorWithRetry{
 			message: fmt.Sprintf("Subnet CR %s is not realized on NSX", name),
 			retry:   false,
-			error:   fmt.Errorf("not found NSX VpcSubnets created by Subnet CR '%s/%s'", namespace, name),
+			error:   err,
 		}
 	}
 
@@ -393,10 +396,11 @@ func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namesp
 
 	subnets := r.SubnetService.ListSubnetCreatedBySubnetSet(string(subnetSetCR.UID))
 	if len(subnets) == 0 {
-		log.Info("NSX VpcSubnets by SubnetSet CR do not exist", "SubnetSet", subnetSetKey.String())
+		err = fmt.Errorf("no existing NSX VpcSubnet created by SubnetSet CR '%s/%s'", namespace, name)
+		log.Error(err, "NSX VpcSubnets by SubnetSet CR do not exist", "SubnetSet", subnetSetKey.String())
 		return nil, &errorWithRetry{
 			message: fmt.Sprintf("SubnetSet CR %s is not realized on NSX", name),
-			error:   fmt.Errorf("no existing NSX VpcSubnet created by SubnetSet CR '%s/%s'", namespace, name),
+			error:   err,
 			retry:   false,
 		}
 	}
@@ -471,8 +475,9 @@ func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap 
 	err := c.Status().Update(ctx, bindingMap)
 	if err != nil {
 		log.Error(err, "Failed to update SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
+	} else {
+		log.Debug("Updated SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
 	}
-	log.Debug("Updated SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
 }
 
 // subnetConnectionBindingMapSubnetNameIndexFunc is an index function that indexes SubnetConnectionBindingMap by namespace and subnet name

@@ -178,7 +178,7 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 		return false, errors.New("create failed")
 	})
 	res, ret := r.Reconcile(ctx, req)
-	assert.Equal(t, res, resultRequeue)
+	assert.Equal(t, res, resultNormal)
 	assert.NotEqual(t, ret, nil)
 	patch.Reset()
 
@@ -367,7 +367,6 @@ func TestIPAddressAllocationReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-		return
 	})
 	defer patches.Reset()
 	r := NewIPAddressAllocationReconciler(mockMgr, ipAddressAllocationService, vpcService)

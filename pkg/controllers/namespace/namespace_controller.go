@@ -177,8 +177,12 @@ func (r *NamespaceReconciler) deleteDefaultSubnetSet(ns string) error {
 }
 
 func (r *NamespaceReconciler) namespaceError(ctx context.Context, k8sObj client.Object, msg string, err error) {
-	logErr := util.If(err == nil, errors.New(msg), err).(error)
-	log.Error(logErr, msg)
+	if err != nil {
+		log.Error(err, msg)
+
+	} else {
+		log.Warn(msg)
+	}
 	changes := map[string]string{common.AnnotationNamespaceVPCError: msg}
 	util.UpdateK8sResourceAnnotation(r.Client, ctx, k8sObj, changes)
 }
@@ -226,25 +230,25 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		nc, ncExist, err := r.VPCService.GetVPCNetworkConfig(ncName)
 		if err != nil {
 			log.Error(err, "Failed to get NetworkConfig", "Namespace", ncName)
-			return common.ResultRequeue, nil
+			return common.ResultNormal, err
 		}
 		if !ncExist {
 			message := fmt.Sprintf("missing NetworkConfig %s for Namespace %s", ncName, ns)
 			r.namespaceError(ctx, obj, message, nil)
-			return common.ResultRequeueAfter10sec, errors.New(message)
+			return common.ResultNormal, errors.New(message)
 		}
 		if err = r.VPCService.ValidateNetworkConfig(nc); err != nil {
 			// if network config is not valid, no need to retry, skip processing
 			message := fmt.Sprintf("invalid NetworkConfig %s for Namespace %s, error: %v", ncName, ns, err)
-			r.namespaceError(ctx, obj, message, nil)
-			return common.ResultRequeueAfter10sec, errors.New(message)
+			r.namespaceError(ctx, obj, message, err)
+			return common.ResultRequeueAfter10sec, nil
 		}
 
 		if _, err := r.createNetworkInfoCR(ctx, obj, ns); err != nil {
-			return common.ResultRequeueAfter10sec, err
+			return common.ResultRequeueAfter10sec, nil
 		}
 		if err := r.createDefaultSubnetSet(ctx, ns, nc.Spec.DefaultSubnetSize); err != nil {
-			return common.ResultRequeueAfter10sec, err
+			return common.ResultRequeueAfter10sec, nil
 		}
 
 		// Sync shared subnets, look into shared subnets in vpcnetworkconfigurations,
@@ -252,7 +256,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// for deleted shared subnets, delete Subnet CRs
 		if err := r.syncSharedSubnets(ctx, ns, nc); err != nil {
 			log.Error(err, "Failed to sync shared Subnets", "Namespace", ns)
-			return common.ResultRequeue, err
+			return common.ResultNormal, err
 		}
 
 		return common.ResultNormal, nil
@@ -260,11 +264,11 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		metrics.CounterInc(r.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNamespace)
 		// actively delete default SubnetSet, so that SubnetSet webhook can admit the delete request
 		if err := r.deleteDefaultSubnetSet(ns); err != nil {
-			return common.ResultRequeueAfter10sec, err
+			return common.ResultRequeueAfter10sec, nil
 		}
 		// delete all shared Subnet so that Subnet webhook can permit the delete request
 		if err := r.deleteAllSharedSubnets(ctx, ns); err != nil {
-			return common.ResultRequeueAfter10sec, err
+			return common.ResultRequeueAfter10sec, nil
 		}
 		return common.ResultNormal, nil
 	}

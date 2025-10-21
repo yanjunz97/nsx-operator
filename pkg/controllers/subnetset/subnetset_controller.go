@@ -35,7 +35,6 @@ import (
 var (
 	log                     = logger.Log
 	ResultNormal            = common.ResultNormal
-	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResTypeSubnetSet  = common.MetricResTypeSubnetSet
 )
@@ -54,6 +53,7 @@ type SubnetSetReconciler struct {
 }
 
 func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log.Info("Reconciling SubnetSet CR", "SubnetSet", req.NamespacedName)
 	startTime := time.Now()
 	defer func() {
 		log.Info("Finished reconciling SubnetSet", "SubnetSet", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
@@ -66,13 +66,13 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if apierrors.IsNotFound(err) {
 			if err := r.deleteSubnetBySubnetSetName(ctx, req.Name, req.Namespace); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-				return ResultRequeue, err
+				return ResultNormal, err
 			}
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return ResultNormal, nil
 		}
 		log.Error(err, "Unable to fetch SubnetSet CR", "SubnetSet", req.NamespacedName)
-		return ResultRequeue, err
+		return ResultNormal, err
 	}
 
 	bindingCRs := r.getSubnetBindingCRsBySubnetSet(ctx, subnetsetCR)
@@ -84,7 +84,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				msgFailAddFinalizer := fmt.Sprintf("Failed to add the finalizer on SubnetSet for the dependency by SubnetConnectionBindingMap %s", bindingCRs[0].Name)
 				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Unable to add the finalizer on SubnetSet used by SubnetConnectionBindingMap",
 					setSubnetSetReadyStatusFalse, msgFailAddFinalizer)
-				return ResultRequeue, err
+				return ResultNormal, err
 			}
 		}
 	} else {
@@ -95,7 +95,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				msgFailDelFinalizer := "Failed to remove the finalizer on SubnetSet when there is no reference by SubnetConnectionBindingMaps"
 				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Unable to remove the finalizer from SubnetSet",
 					setSubnetSetReadyStatusFalse, fmt.Sprint(msgFailDelFinalizer))
-				return ResultRequeue, err
+				return ResultNormal, err
 			}
 		}
 	}
@@ -109,13 +109,13 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 			msgDeleteInUse := fmt.Sprintf("SubnetSet is used by SubnetConnectionBindingMap %s and not able to delete", bindingsOnNSX[0].GetName())
 			r.setSubnetDeletionFailedStatus(ctx, subnetsetCR, metav1.Now(), msgDeleteInUse, "SubnetSetInUse")
-			return ResultRequeue, err
+			return ResultNormal, err
 		}
 
 		err := r.deleteSubnetForSubnetSet(*subnetsetCR, false, false)
 		if err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-			return ResultRequeue, err
+			return ResultNormal, err
 		}
 		r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 		return ResultNormal, nil
@@ -130,13 +130,13 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if subnetsetCR.Spec.IPv4SubnetSize == 0 {
 		vpcNetworkConfig, err := r.VPCService.GetVPCNetworkConfigByNamespace(subnetsetCR.Namespace)
 		if err != nil {
-			log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", subnetsetCR.Namespace)
-			return ResultRequeue, nil
+			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to get VPCNetworkConfig", setSubnetSetReadyStatusFalse)
+			return ResultNormal, err
 		}
 		if vpcNetworkConfig == nil {
 			err := fmt.Errorf("failed to find VPCNetworkConfig for Namespace %s", subnetsetCR.Namespace)
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "", setSubnetSetReadyStatusFalse)
-			return ResultRequeue, nil
+			return ResultNormal, err
 		}
 		subnetsetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
 		specChanged = true
@@ -146,7 +146,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		err := r.Client.Update(ctx, subnetsetCR)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
-			return ResultRequeue, err
+			return ResultNormal, err
 		}
 	}
 
@@ -156,7 +156,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		tags := r.SubnetService.GenerateSubnetNSTags(subnetsetCR)
 		if tags == nil {
 			log.Error(nil, "Failed to generate SubnetSet tags", "SubnetSet", req.NamespacedName)
-			return ResultRequeue, errors.New("failed to generate SubnetSet tags")
+			return ResultNormal, errors.New("failed to generate SubnetSet tags")
 		}
 		// tags cannot exceed maximum size 26
 		if len(tags) > servicecommon.MaxTagsCount {
@@ -168,22 +168,22 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Debug("Restore SubnetSet", "SubnetSet", req.NamespacedName)
 			vpcInfoList := r.VPCService.ListVPCInfo(req.Namespace)
 			if len(vpcInfoList) == 0 {
-				return ResultNormal, fmt.Errorf("failed to find VPC for Namespace %s", req.Namespace)
+				return ResultNormal, fmt.Errorf("failed to find VPC for Namespace %s, will retry later", req.Namespace)
 			}
 			if err := r.SubnetService.RestoreSubnetSet(subnetsetCR, vpcInfoList[0], tags); err != nil {
 				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to restore SubnetSet", setSubnetSetReadyStatusFalse)
-				return ResultRequeue, nil
+				return ResultNormal, err
 			}
 			r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
 		}
 		if err := r.SubnetService.UpdateSubnetSet(subnetsetCR.Namespace, nsxSubnets, tags, string(subnetsetCR.Spec.SubnetDHCPConfig.Mode)); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
-			return ResultRequeue, nil
+			return ResultNormal, err
 		}
 	}
 	r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
 
-	return ctrl.Result{}, nil
+	return ResultNormal, nil
 }
 
 func setSubnetSetReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
@@ -250,10 +250,10 @@ func updateSubnetSetStatusConditions(client client.Client, ctx context.Context, 
 	}
 	if conditionsUpdated {
 		if err := client.Status().Update(ctx, subnetSet); err != nil {
-			log.Error(err, "Failed to update status", "Name", subnetSet.Name, "Namespace", subnetSet.Namespace)
-		} else {
-			log.Info("Updated SubnetSet", "Name", subnetSet.Name, "Namespace", subnetSet.Namespace, "New Conditions", newConditions)
+			log.Error(err, "Failed to update SubnetSet status", "Name", subnetSet.Name, "Namespace", subnetSet.Namespace)
+			return
 		}
+		log.Debug("Updated SubnetSet", "Name", subnetSet.Name, "Namespace", subnetSet.Namespace, "New Conditions", newConditions)
 	}
 }
 
@@ -316,6 +316,7 @@ func (r *SubnetSetReconciler) EnableRestoreMode() {
 // CollectGarbage collect Subnet which there is no port attached on it.
 // it implements the interface GarbageCollector method.
 func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) error {
+	log.Info("SubnetSet garbage collector started")
 	startTime := time.Now()
 	defer func() {
 		log.Info("SubnetSet garbage collection completed", "duration(ms)", time.Since(startTime).Milliseconds())
@@ -477,7 +478,7 @@ func (r *SubnetSetReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in SubnetSet restore: %v", errorList)
 	}
 	return nil
 }

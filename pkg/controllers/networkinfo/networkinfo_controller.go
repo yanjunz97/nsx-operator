@@ -5,7 +5,6 @@ package networkinfo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -144,13 +143,13 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if apierrors.IsNotFound(err) {
 			if err := r.deleteVPCsByNamespace(ctx, req.Namespace); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-				return common.ResultRequeue, err
+				return common.ResultNormal, err
 			}
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return common.ResultNormal, nil
 		}
 		log.Error(err, "Unable to fetch NetworkInfo CR", "NetworkInfo", req.NamespacedName)
-		return common.ResultRequeue, err
+		return common.ResultNormal, err
 	}
 
 	// Check if the CR is marked for deletion
@@ -158,7 +157,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		if err := r.deleteVPCsByNamespace(ctx, networkInfoCR.GetNamespace()); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-			return common.ResultRequeue, err
+			return common.ResultNormal, err
 		}
 		r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 		return common.ResultNormal, nil
@@ -170,7 +169,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNetCfgGetError.getNSNetworkCondition(err))
-		return common.ResultRequeueAfter10sec, err
+		return common.ResultRequeueAfter10sec, nil
 	}
 
 	ncName := nc.Name
@@ -181,7 +180,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to get system VPCNetworkConfiguration", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgSystemVPCNetCfgNotFound.getNSNetworkCondition(err))
-		return common.ResultRequeueAfter10sec, err
+		return common.ResultRequeueAfter10sec, nil
 	}
 
 	retryWithSystemVPC := false
@@ -204,7 +203,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Error(err, "Failed to get the connection status")
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to validate the edge and gateway connection, Project: %s", nc.Spec.NSXProject), setNetworkInfoVPCStatusWithError, nil)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGwConnectionGetError.getNSNetworkCondition(err))
-			return common.ResultRequeueAfter10sec, err
+			return common.ResultRequeueAfter10sec, nil
 		}
 		log.Info("Got the connection status", "status", connectionStatus)
 		setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, systemVpcNetCfg, connectionStatus)
@@ -222,13 +221,13 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	lbProvider, err := r.Service.GetLBProvider()
 	if err != nil {
 		log.Error(err, "Failed to get LB Provider")
-		return common.ResultRequeue, nil
+		return common.ResultNormal, err
 	}
 	createdVpc, err := r.Service.CreateOrUpdateVPC(ctx, networkInfoCR, nc, lbProvider, serviceClusterReady, r.restoreMode)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update VPC", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
-		return common.ResultRequeueAfter10sec, err
+		return common.ResultRequeueAfter10sec, nil
 	}
 
 	var privateIPs []string
@@ -241,7 +240,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		vpcConnectivityProfilePath, err = r.GetVpcConnectivityProfilePathByVpcPath(vpcPath)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to get VPC connectivity profile path %s", vpcPath), setNetworkInfoVPCStatusWithError, nil)
-			return common.ResultRequeueAfter10sec, err
+			return common.ResultRequeueAfter10sec, nil
 		}
 		// Update NetworkConfig and NetworkInfo if no vpcConnectivityProfile
 		// to allow Namespace created without LB and SNAT
@@ -263,7 +262,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			if err != nil {
 				r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to get NSX LBS path with pre-created VPC %s", vpcPath), setNetworkInfoVPCStatusWithError, nil)
 				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNsxLBSNotReady.getNSNetworkCondition(err))
-				return common.ResultRequeueAfter10sec, err
+				return common.ResultRequeueAfter10sec, nil
 			}
 		}
 	} else {
@@ -278,7 +277,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to get VPC connectivity profile", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGetExtIPBlockError.getNSNetworkCondition(err))
-		return common.ResultRequeueAfter10sec, err
+		return common.ResultRequeueAfter10sec, nil
 	}
 	// Check external IP blocks on system VPC network config.
 	if ncName == commonservice.SystemVPCNetworkConfigurationName {
@@ -305,7 +304,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to read default SNAT IP from VPC: %s", *createdVpc.Id), setNetworkInfoVPCStatusWithError, state)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCDefaultSNATIPGetError.getNSNetworkCondition(err))
-			return common.ResultRequeueAfter10sec, err
+			return common.ResultRequeueAfter10sec, nil
 		}
 	}
 	if ncName == commonservice.SystemVPCNetworkConfigurationName {
@@ -333,7 +332,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to read AVI LB Subnet path and CIDR, VPC: %s", *createdVpc.Id), setNetworkInfoVPCStatusWithError, state)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCAviSubnetError.getNSNetworkCondition(err))
-			return common.ResultRequeueAfter10sec, err
+			return common.ResultRequeueAfter10sec, nil
 		}
 		lbIP = aviSECIDR
 	} else if lbProvider == vpc.NSXLB && len(nsxLBSPath) > 0 {
@@ -349,7 +348,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to read NSX LB Subnet path and CIDR, VPC: %s", *createdVpc.Id), setNetworkInfoVPCStatusWithError, state)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNSXLBSNATIPError.getNSNetworkCondition(err))
-			return common.ResultRequeueAfter10sec, err
+			return common.ResultRequeueAfter10sec, nil
 		}
 		lbIP = nsxLBSNATIP
 	}
@@ -666,7 +665,7 @@ func (r *NetworkInfoReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in NetworkInfo restore: %v", errorList)
 	}
 	return nil
 }

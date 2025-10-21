@@ -5,7 +5,6 @@ package ipaddressallocation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
@@ -31,7 +30,6 @@ import (
 var (
 	log           = logger.Log
 	resultNormal  = common.ResultNormal
-	resultRequeue = common.ResultRequeue
 	MetricResType = common.MetricResTypeIPAddressAllocation
 )
 
@@ -64,7 +62,9 @@ func setReadyStatusFalse(client client.Client, ctx context.Context, obj client.O
 	e := client.Status().Update(ctx, ipaddressallocation)
 	if e != nil {
 		log.Error(e, "Unable to update IPAddressAllocation status", "IPAddressAllocation", ipaddressallocation)
+		return
 	}
+	log.Debug("Updated IPAddressAllocation", "Name", ipaddressallocation.Name, "Namespace", ipaddressallocation.Namespace, "Conditions", conditions)
 }
 
 func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
@@ -82,7 +82,9 @@ func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Ob
 	e := client.Status().Update(ctx, ipaddressallocation)
 	if e != nil {
 		log.Error(e, "Unable to update IPAddressAllocation status", "IPAddressAllocation", ipaddressallocation)
+		return
 	}
+	log.Debug("Updated IPAddressAllocation", "Name", ipaddressallocation.Name, "Namespace", ipaddressallocation.Namespace, "Conditions", conditions)
 }
 
 func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -94,12 +96,12 @@ func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.
 			err = r.Service.DeleteIPAddressAllocationByNamespacedName(req.Namespace, req.Name)
 			if err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-				return resultRequeue, err
+				return resultNormal, err
 			}
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
-			return common.ResultNormal, nil
+			return resultNormal, nil
 		}
-		return resultRequeue, err
+		return resultNormal, err
 	}
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		return r.handleUpdate(ctx, obj)
@@ -112,7 +114,7 @@ func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, obj *v
 	updated, err := r.Service.CreateOrUpdateIPAddressAllocation(obj, r.restoreMode)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, obj, err, "", setReadyStatusFalse)
-		return resultRequeue, err
+		return resultNormal, err
 	}
 	if updated {
 		r.StatusUpdater.UpdateSuccess(ctx, obj, setReadyStatusTrue)
@@ -124,7 +126,7 @@ func (r *IPAddressAllocationReconciler) handleDeletion(req ctrl.Request, obj *v1
 	r.StatusUpdater.IncreaseDeleteTotal()
 	if err := r.Service.DeleteIPAddressAllocation(obj); err != nil {
 		r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-		return resultRequeue, err
+		return resultNormal, err
 	}
 	r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 	return resultNormal, nil
@@ -189,7 +191,7 @@ func (r *IPAddressAllocationReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in IPAddressAllocation restore: %v", errorList)
 	}
 	return nil
 }
@@ -213,7 +215,7 @@ func (r *IPAddressAllocationReconciler) getRestoreList() ([]types.NamespacedName
 
 func (r *IPAddressAllocationReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {
 	if err := r.setupWithManager(mgr); err != nil {
-		log.Error(err, "Failed to create ipaddressallocation controller")
+		log.Error(err, "Failed to create IPAddressAllocation controller")
 		return err
 	}
 	if hookServer != nil {

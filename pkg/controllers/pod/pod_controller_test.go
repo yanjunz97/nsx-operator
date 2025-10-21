@@ -100,7 +100,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 				return patchesDeleteSubnetPortByPodName
 			},
 			expectedErr:    "deletion failed",
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
 		},
 		{
 			name: "CRNotFoundAndDeletionSuccess",
@@ -142,7 +142,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 				return patchesGetSubnetPathForPod
 			},
 			expectedErr:    "failed to get subnet path",
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
 		},
 		{
 			name: "PodNotScheduled",
@@ -171,7 +171,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			expectedErr:    "failed to get node",
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
 		},
 		{
 			name: "GetSubnetFailure",
@@ -207,7 +207,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			expectedErr:    "failed to get subnet",
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
 		},
 		{
 			name: "CreateSubnetPortFailure",
@@ -248,7 +248,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			expectedErr:    "failed to create subnetport",
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
 		},
 		{
 			name: "CreateSubnetPortSuccess",
@@ -352,7 +352,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 				return patchesDeleteSubnetPort
 			},
 			expectedErr:    "failed to delete subnetport",
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
 		},
 	}
 	for _, tt := range tests {
@@ -736,7 +736,6 @@ func TestPodReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-		return
 	})
 	defer patches.Reset()
 	r := NewPodReconciler(mockMgr, subnetPortService, subnetService, vpcService, nodeService)

@@ -106,7 +106,6 @@ var (
 var (
 	log                     = logger.Log
 	ResultNormal            = common.ResultNormal
-	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResType           = common.MetricResTypeNSXServiceAccount
 	count                   = uint16(0)
@@ -145,7 +144,7 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	r.StatusUpdater.IncreaseSyncTotal()
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
-		log.Error(err, "unable to fetch NSXServiceAccount CR", "req", req.NamespacedName)
+		log.Error(err, "Unable to fetch NSXServiceAccount CR", "req", req.NamespacedName)
 		return ResultNormal, client.IgnoreNotFound(err)
 	}
 
@@ -163,9 +162,9 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if !controllerutil.ContainsFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName) {
 			controllerutil.AddFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
-				log.Error(err, "add finalizer", "nsxserviceaccount", req.NamespacedName)
+				log.Error(err, "Add finalizer", "nsxserviceaccount", req.NamespacedName)
 				r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
-				return ResultRequeue, err
+				return ResultNormal, err
 			}
 			log.Debug("added finalizer on CR", "nsxserviceaccount", req.NamespacedName)
 		}
@@ -173,22 +172,22 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if nsxserviceaccount.IsNSXServiceAccountRealized(&obj.Status) {
 			if r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
 				if err := r.Service.RestoreRealizedNSXServiceAccount(ctx, obj); err != nil {
-					log.Error(err, "update realized failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
+					log.Error(err, "Update realized failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
 					r.StatusUpdater.IncreaseDeleteFailTotal()
-					return ResultRequeue, err
+					return ResultNormal, err
 				}
 			}
 			// update ProxyEndpoints if it has changed.
 			if err := r.Service.UpdateProxyEndpointsIfNeeded(ctx, obj); err != nil {
 				r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
-				return ResultRequeue, err
+				return ResultNormal, err
 			}
 			r.StatusUpdater.UpdateSuccess(ctx, obj, updateNSXServiceAccountStatus)
 			return ResultNormal, nil
 		}
 		if err := r.Service.CreateOrUpdateNSXServiceAccount(ctx, obj); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
-			return ResultRequeue, err
+			return ResultNormal, err
 		}
 		r.StatusUpdater.UpdateSuccess(ctx, obj, updateNSXServiceAccountStatus)
 	} else {
@@ -199,13 +198,13 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				Name:      obj.Name,
 			}, obj.UID); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, obj, err)
-				return ResultRequeue, err
+				return ResultNormal, err
 			}
 			controllerutil.RemoveFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
-				log.Error(err, "removing finalizer failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
+				log.Error(err, "Removing finalizer failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
 				r.StatusUpdater.DeleteFail(req.NamespacedName, obj, err)
-				return ResultRequeue, err
+				return ResultNormal, err
 			}
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 		} else {
@@ -250,7 +249,7 @@ func (r *NSXServiceAccountReconciler) serviceMapFunc(ctx context.Context, _ clie
 		return err
 	})
 	if err != nil {
-		log.Error(err, "failed to list NSXServiceAccount in Service handler")
+		log.Error(err, "Failed to list NSXServiceAccount in Service handler")
 		return requests
 	}
 
@@ -288,7 +287,7 @@ func (r *NSXServiceAccountReconciler) CollectGarbage(ctx context.Context) error 
 	}
 	err = r.Client.List(ctx, nsxServiceAccountList)
 	if err != nil {
-		log.Error(err, "failed to list NSXServiceAccount CR")
+		log.Error(err, "Failed to list NSXServiceAccount CR")
 		return err
 	}
 	gcSuccessCount, gcErrorCount = r.garbageCollector(nsxServiceAccountUIDSet, nsxServiceAccountList)

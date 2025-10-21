@@ -132,6 +132,7 @@ func (r *Reconciler) setNotSupported(ctx context.Context, req ctrl.Request) erro
 // +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=subnetipreservation,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=subnetipreservation/status,verbs=get;update;patch
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log.Info("Reconciling SubnetIPReservation CR", "SubnetIPReservation", req.NamespacedName)
 	startTime := time.Now()
 	defer func() {
 		log.Info("Finished reconciling SubnetIPReservation", "SubnetIPReservation", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
@@ -141,7 +142,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if !r.IPReservationService.Supported {
 		log.Debug("NSX Subnet IP Reservation is not supported", "SubnetIPReservation", req.NamespacedName)
 		if err := r.setNotSupported(ctx, req); err != nil {
-			return common.ResultRequeue, nil
+			return common.ResultNormal, err
 		}
 		return common.ResultNormal, nil
 	}
@@ -153,13 +154,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			if err := r.IPReservationService.DeleteIPReservationByCRName(req.Namespace, req.Name); err != nil {
 				log.Error(err, "Failed to delete NSX SubnetIPReservation", "SubnetIPReservation", req.NamespacedName)
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-				return common.ResultRequeue, nil
+				return common.ResultNormal, err
 			}
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return common.ResultNormal, nil
 		}
 		log.Error(err, "Unable to fetch SubnetIPReservation CR", "SubnetIPReservation", req.NamespacedName)
-		return common.ResultRequeue, nil
+		return common.ResultNormal, err
 	}
 
 	// Delete the NSX Subnet IPReservation if the CR is marked for delete
@@ -167,7 +168,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		r.StatusUpdater.IncreaseDeleteTotal()
 		if err := r.IPReservationService.DeleteIPReservationByCRId(string(ipReservationCR.UID)); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-			return common.ResultRequeue, nil
+			return common.ResultNormal, err
 		}
 		r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 		return common.ResultNormal, nil
@@ -179,16 +180,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if validateErr != nil {
 		r.StatusUpdater.UpdateFail(ctx, ipReservationCR, validateErr.error, validateErr.message, setReadyStatusFalse)
 		if validateErr.retry {
-			return common.ResultRequeue, nil
+			return common.ResultNormal, validateErr.error
 		}
 		return common.ResultNormal, nil
 	}
 
 	nsxSubnet, err := r.SubnetService.GetSubnetByCR(subnetCR)
 	if err != nil {
-		log.Error(err, "failed to get NSX Subnet", "Namespace", subnetCR.Namespace, "Subnet", subnetCR.Name)
+		log.Error(err, "Failed to get NSX Subnet", "Namespace", subnetCR.Namespace, "Subnet", subnetCR.Name)
 		r.StatusUpdater.UpdateFail(ctx, ipReservationCR, err, "failed to get NSX Subnet", setReadyStatusFalse)
-		return common.ResultRequeue, nil
+		return common.ResultNormal, err
 	}
 
 	// Create or update SubnetIPReservation
@@ -196,7 +197,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err != nil {
 		log.Error(err, "Failed to get or create NSX SubnetIPReservations")
 		r.StatusUpdater.UpdateFail(ctx, ipReservationCR, err, "Failed to get or create NSX SubnetIPReservations", setReadyStatusFalse)
-		return common.ResultRequeue, nil
+		return common.ResultNormal, err
 	}
 
 	ipReservationCR.Status.IPs = nsxIPReservation.Ips
@@ -289,9 +290,9 @@ func updateStatusConditions(client client.Client, ctx context.Context, ipReserva
 	if conditionsUpdated {
 		if err := client.Status().Update(ctx, ipReservation); err != nil {
 			log.Error(err, "Failed to update SubnetIPReservation status", "Name", ipReservation.Name, "Namespace", ipReservation.Namespace)
-		} else {
-			log.Info("Updated SubnetIPReservation", "Name", ipReservation.Name, "Namespace", ipReservation.Namespace, "New Conditions", newConditions)
+			return
 		}
+		log.Debug("Updated SubnetIPReservation", "Name", ipReservation.Name, "Namespace", ipReservation.Namespace, "New Conditions", newConditions)
 	}
 }
 
@@ -324,6 +325,7 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 // CollectGarbage collects the stale SubnetIPReservations and deletes them on NSX which have been removed from K8s.
 // It implements the interface GarbageCollector method.
 func (r *Reconciler) CollectGarbage(ctx context.Context) error {
+	log.Info("SubnetIPReservation garbage collector started")
 	startTime := time.Now()
 	defer func() {
 		log.Info("SubnetIPReservation garbage collection completed", "duration(ms)", time.Since(startTime).Milliseconds())

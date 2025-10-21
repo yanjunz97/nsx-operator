@@ -123,7 +123,7 @@ func TestReconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes: controllerscommon.ResultRequeue,
+			expectRes: controllerscommon.ResultNormal,
 		},
 		{
 			name: "Failed to reconcile due to SubnetConnectionBindingMap CR doesn't exist",
@@ -136,7 +136,7 @@ func TestReconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes: controllerscommon.ResultRequeue,
+			expectRes: controllerscommon.ResultNormal,
 		}, {
 			name: "Succeeded to delete SubnetConnectionBindingMaps if CR doesn't exist",
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
@@ -190,7 +190,7 @@ func TestReconcile(t *testing.T) {
 					})
 				return patches
 			},
-			expectRes: controllerscommon.ResultRequeue,
+			expectRes: controllerscommon.ResultNormal,
 		}, {
 			name:    "Succeeded to create/update SubnetConnectionBindingMap",
 			objects: []client.Object{validBM1},

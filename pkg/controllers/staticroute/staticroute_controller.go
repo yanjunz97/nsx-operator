@@ -32,7 +32,6 @@ import (
 var (
 	log                      = logger.Log
 	ResultNormal             = common.ResultNormal
-	ResultRequeue            = common.ResultRequeue
 	ResultRequeueAfter5mins  = common.ResultRequeueAfter5mins
 	MetricResTypeStaticRoute = common.MetricResTypeStaticRoute
 )
@@ -68,13 +67,13 @@ func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if apierrors.IsNotFound(err) {
 			if err := r.deleteStaticRouteByName(req.Namespace, req.Name); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-				return ResultRequeue, err
+				return ResultNormal, err
 			}
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return ResultNormal, nil
 		}
-		log.Error(err, "unable to fetch static route CR", "req", req.NamespacedName)
-		return ResultRequeue, err
+		log.Error(err, "Unable to fetch static route CR", "req", req.NamespacedName)
+		return ResultNormal, err
 	}
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -86,14 +85,14 @@ func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			if apierror != nil {
 				log.Info("create or update static route failed", "error", apierror, "error type", errortype)
 			}
-			return ResultRequeue, err
+			return ResultNormal, err
 		}
 		r.StatusUpdater.UpdateSuccess(ctx, obj, setStaticRouteReadyStatusTrue)
 	} else {
 		r.StatusUpdater.IncreaseDeleteTotal()
 		if err := r.Service.DeleteStaticRouteByCR(obj); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-			return ResultRequeue, err
+			return ResultNormal, err
 		}
 		r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 	}
@@ -136,8 +135,11 @@ func updateStaticRouteStatusConditions(client client.Client, ctx context.Context
 		}
 	}
 	if conditionsUpdated {
-		client.Status().Update(ctx, staticRoute)
-		log.Debug("Updated Static Route CRD", "Name", staticRoute.Name, "Namespace", staticRoute.Namespace, "New Conditions", newConditions)
+		if err := client.Status().Update(ctx, staticRoute); err != nil {
+			log.Error(err, "Failed to update Static Route status", "Name", staticRoute.Name, "Namespace", staticRoute.Namespace)
+			return
+		}
+		log.Debug("Updated Static Route CR", "Name", staticRoute.Name, "Namespace", staticRoute.Namespace, "New Conditions", newConditions)
 	}
 }
 
@@ -199,7 +201,7 @@ func (r *StaticRouteReconciler) CollectGarbage(ctx context.Context) error {
 	crdStaticRouteList := &v1alpha1.StaticRouteList{}
 	err := r.Client.List(ctx, crdStaticRouteList)
 	if err != nil {
-		log.Error(err, "failed to list static route CR")
+		log.Error(err, "Failed to list static route CR")
 		return err
 	}
 
@@ -241,7 +243,7 @@ func (r *StaticRouteReconciler) RestoreReconcile() error {
 
 func (r *StaticRouteReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
 	if err := r.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "StaticRoute")
+		log.Error(err, "Failed to create controller", "controller", "StaticRoute")
 		return err
 	}
 	go common.GenericGarbageCollector(make(chan bool), commonservice.GCInterval, r.CollectGarbage)

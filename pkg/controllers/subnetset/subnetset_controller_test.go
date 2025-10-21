@@ -155,8 +155,9 @@ func TestReconcile(t *testing.T) {
 		restoreMode  bool
 	}{
 		{
-			name:      "Create a SubnetSet with find VPCNetworkConfig error",
-			expectRes: ResultRequeue,
+			name:         "Create a SubnetSet with find VPCNetworkConfig error",
+			expectRes:    ResultNormal,
+			expectErrStr: "failed to locate default NetworkConfig",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}
@@ -190,8 +191,8 @@ func TestReconcile(t *testing.T) {
 		{
 			// return nil and requeue when UpdateSubnetSet failed
 			name:         "Create a SubnetSet failed to UpdateSubnetSet",
-			expectRes:    ResultRequeue,
-			expectErrStr: "",
+			expectRes:    ResultNormal,
+			expectErrStr: "failed to get SubnetSet",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32}}
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
@@ -421,7 +422,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes: ctrl.Result{},
+			expectRes: ResultNormal,
 		}, {
 			name:              "Failed to add finalizer after a SubnetSet is used by SubnetConnectionBindingMap",
 			existingSubnetSet: testSubnetSet1,
@@ -439,7 +440,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes:    ctlcommon.ResultRequeue,
+			expectRes:    ResultNormal,
 			expectErrStr: "failed to update CR",
 		}, {
 			name:              "Not add duplicated finalizer after a SubnetSet is used by SubnetConnectionBindingMap",
@@ -459,7 +460,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes: ctrl.Result{},
+			expectRes: ResultNormal,
 		}, {
 			name:              "Successfully remove finalizer after a Subnet is not used by any SubnetConnectionBindingMap",
 			existingSubnetSet: testSubnetSet2,
@@ -475,7 +476,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes: ctrl.Result{},
+			expectRes: ResultNormal,
 		}, {
 			name:              "Failed to remove finalizer after a Subnet is not used by any SubnetConnectionBindingMap",
 			existingSubnetSet: testSubnetSet2,
@@ -493,7 +494,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes:    ctlcommon.ResultRequeue,
+			expectRes:    ResultNormal,
 			expectErrStr: "failed to update CR",
 		}, {
 			name:              "Not update finalizers if a SubnetSet is not used by any SubnetConnectionBindingMap",
@@ -530,7 +531,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes:    ResultRequeue,
+			expectRes:    ResultNormal,
 			expectErrStr: "failed to delete SubnetSet CR ns1/subnetset",
 		},
 	} {
@@ -646,7 +647,7 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes: ResultRequeue,
+			expectRes: ResultNormal,
 		},
 		{
 			name:         "Delete NSX Subnet failed and requeue",
@@ -685,7 +686,7 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes: ResultRequeue,
+			expectRes: ResultNormal,
 		},
 	}
 	for _, testCase := range testCases {
@@ -945,7 +946,6 @@ func (m *MockManager) Start(context.Context) error {
 type mockWebhookServer struct{}
 
 func (m *mockWebhookServer) Register(path string, hook http.Handler) {
-	return
 }
 
 func (m *mockWebhookServer) Start(ctx context.Context) error {
@@ -1000,7 +1000,6 @@ func TestStartSubnetSetController(t *testing.T) {
 			webHookServer: &mockWebhookServer{},
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -1017,7 +1016,6 @@ func TestStartSubnetSetController(t *testing.T) {
 			webHookServer: nil,
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -1034,7 +1032,6 @@ func TestStartSubnetSetController(t *testing.T) {
 			webHookServer: &mockWebhookServer{},
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -1313,7 +1310,7 @@ func TestSubnetSetReconciler_RestoreReconcile(t *testing.T) {
 	patches = gomonkey.ApplyFunc((*SubnetSetReconciler).Reconcile, func(r *SubnetSetReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 		assert.Equal(t, "subnetset-1", req.Name)
 		assert.Equal(t, "ns-1", req.Namespace)
-		return ResultRequeue, nil
+		return ResultNormal, fmt.Errorf("mocked error")
 	})
 	defer patches.Reset()
 	err = r.RestoreReconcile()

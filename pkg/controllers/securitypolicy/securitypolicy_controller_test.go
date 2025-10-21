@@ -302,7 +302,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(errFailToGet)
 	result, retErr := r.Reconcile(ctx, req)
 	assert.Equal(t, retErr, errFailToGet)
-	assert.Equal(t, ResultRequeue, result)
+	assert.Equal(t, ResultNormal, result)
 
 	// not found and deletion success
 	errNotFound := apierrors.NewNotFound(v1alpha1.Resource("SecurityPolicy"), "")
@@ -343,7 +343,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	result, retErr = r.Reconcile(ctx, req)
 	assert.Equal(t, retErr, err)
-	assert.Equal(t, ResultRequeue, result)
+	assert.Equal(t, ResultNormal, result)
 	IsSystemNamespacePatch.Reset()
 
 	// DeletionTimestamp.IsZero = ture, create security policy fail
@@ -359,7 +359,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	result, retErr = r.Reconcile(ctx, req)
 	assert.Equal(t, retErr, err)
-	assert.Equal(t, ResultRequeue, result)
+	assert.Equal(t, ResultNormal, result)
 	patch.Reset()
 
 	// DeletionTimestamp.IsZero = true, Finalizers include util.SecurityPolicyFinalizerName and update success
@@ -390,7 +390,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
 	result, retErr = r.Reconcile(ctx, req)
 	assert.Equal(t, retErr, err)
-	assert.Equal(t, ResultRequeue, result)
+	assert.Equal(t, ResultNormal, result)
 	patch.Reset()
 
 	// DeletionTimestamp.IsZero = false, Finalizers doesn't include util.SecurityPolicyFinalizerName
@@ -423,7 +423,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Update(ctx, gomock.Any(), gomock.Any()).Return(nil)
 	result, retErr = r.Reconcile(ctx, req)
 	assert.Equal(t, retErr, err)
-	assert.Equal(t, ResultRequeue, result)
+	assert.Equal(t, ResultNormal, result)
 	patch.Reset()
 
 	// DeletionTimestamp.IsZero = false, Finalizers include util.SecurityPolicyFinalizerName and delete success
@@ -750,7 +750,7 @@ func TestSecurityPolicyReconcilerForVPC_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(errFailToGet)
 	result, retErr := r.Reconcile(ctx, req)
 	assert.Equal(t, retErr, errFailToGet)
-	assert.Equal(t, ResultRequeue, result)
+	assert.Equal(t, ResultNormal, result)
 
 	// not found and deletion failed
 	errNotFound := apierrors.NewNotFound(crdv1alpha1.Resource("SecurityPolicy"), "")
@@ -761,7 +761,7 @@ func TestSecurityPolicyReconcilerForVPC_Reconcile(t *testing.T) {
 	})
 	result, retErr = r.Reconcile(ctx, req)
 	assert.Equal(t, retErr, err)
-	assert.Equal(t, ResultRequeue, result)
+	assert.Equal(t, ResultNormal, result)
 
 	// not found and deletion success
 	deleteSecurityPolicyByNamePatch.Reset()
@@ -908,11 +908,9 @@ func TestStartSecurityPolicyController(t *testing.T) {
 			name: "Start SecurityPolicy Controller",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyFunc(os.Exit, func(code int) {
 					assert.FailNow(t, "os.Exit should not be called")
-					return
 				})
 				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
 					return fakeService()
@@ -928,7 +926,6 @@ func TestStartSecurityPolicyController(t *testing.T) {
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
 					return fakeService()

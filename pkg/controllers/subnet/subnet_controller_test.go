@@ -72,7 +72,6 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 					return nil
 				})
 				patch.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patch
 			},
@@ -290,7 +289,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patches
 			},
@@ -329,7 +327,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes:    ResultRequeue,
+			expectRes:    ResultNormal,
 			expectErrStr: "failed to delete NSX Subnet",
 		},
 		{
@@ -364,11 +362,10 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patches
 			},
-			expectRes:    ResultRequeue,
+			expectRes:    ResultNormal,
 			expectErrStr: "cannot delete Subnet fake-id, still attached by 1 port(s)",
 		},
 		{
@@ -384,7 +381,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			expectErrStr:     "get Subnet CR error",
-			expectRes:        ResultRequeue,
+			expectRes:        ResultNormal,
 			existingSubnetCR: nil,
 		},
 		{
@@ -442,7 +439,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patches
 			},
@@ -487,7 +483,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes:        ResultRequeue,
+			expectRes:        ResultNormal,
 			expectErrStr:     "delete NSX Subnet failed",
 			existingSubnetCR: createNewSubnet(true),
 		},
@@ -524,7 +520,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			existingSubnetCR: createNewSubnet(),
 			expectErrStr:     "create or update failed",
-			expectRes:        ResultRequeue,
+			expectRes:        ResultNormal,
 		},
 		{
 			name: "Update Subnet CR spec success",
@@ -640,7 +636,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				},
 				Status: v1alpha1.SubnetStatus{},
 			},
-			expectRes:    ResultRequeue,
+			expectRes:    ResultNormal,
 			expectErrStr: "failed to get NSX Subnet from store",
 		},
 		{
@@ -688,7 +684,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			existingSubnetCR: createNewSubnet(),
 			expectErrStr:     "failed to generate Subnet tags",
-			expectRes:        ResultRequeue,
+			expectRes:        ResultNormal,
 		},
 		{
 			name: "Create or Update Subnet with No VPC info found failure",
@@ -857,7 +853,6 @@ func TestStartSubnetController(t *testing.T) {
 			name: "StartSubnetController with webhook",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -873,7 +868,6 @@ func TestStartSubnetController(t *testing.T) {
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -989,7 +983,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				return patches
 			},
 			expectErrStr: "failed to update CR",
-			expectRes:    common2.ResultRequeue,
+			expectRes:    ResultNormal,
 		}, {
 			name:           "Not add duplicated finalizer after a Subnet is used by SubnetConnectionBindingMap",
 			existingSubnet: testSubnet2,
@@ -1035,7 +1029,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				return patches
 			},
 			expectErrStr: "failed to update CR",
-			expectRes:    common2.ResultRequeue,
+			expectRes:    ResultNormal,
 		}, {
 			name:           "Not update finalizers if a Subnet is not used by any SubnetConnectionBindingMaps",
 			existingSubnet: testSubnet1,
@@ -1075,7 +1069,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				return patches
 			},
 			expectErrStr: "failed to delete Subnet CR",
-			expectRes:    ResultRequeue,
+			expectRes:    ResultNormal,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1183,7 +1177,7 @@ func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 	patches = gomonkey.ApplyFunc((*SubnetReconciler).Reconcile, func(r *SubnetReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 		assert.Equal(t, "subnet-1", req.Name)
 		assert.Equal(t, "ns-1", req.Namespace)
-		return ResultRequeue, nil
+		return ResultNormal, fmt.Errorf("mocked error")
 	})
 	defer patches.Reset()
 	err = r.RestoreReconcile()
@@ -1221,7 +1215,7 @@ func TestHandleSharedSubnet(t *testing.T) {
 			nsxSubnetErr:        fmt.Errorf("failed to get NSX subnet"),
 			getStatusErr:        nil,
 			updateStatusErr:     nil,
-			expectedResult:      ResultRequeue,
+			expectedResult:      ResultNormal,
 			expectedErrContains: "failed to get NSX subnet",
 		},
 		{
@@ -1231,7 +1225,7 @@ func TestHandleSharedSubnet(t *testing.T) {
 			nsxSubnetErr:        nil,
 			getStatusErr:        fmt.Errorf("failed to get subnet status"),
 			updateStatusErr:     nil,
-			expectedResult:      ResultRequeue,
+			expectedResult:      ResultNormal,
 			expectedErrContains: "failed to get subnet status",
 		},
 		{
