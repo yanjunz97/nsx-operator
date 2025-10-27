@@ -205,6 +205,15 @@ func (r *IPAddressAllocationReconciler) getRestoreList() ([]types.NamespacedName
 	for _, ipAddressAllocationCR := range ipAddressAllocationCRList.Items {
 		// Restore an IPAddressAllocation if IPAddressAllocation CR has status updated but no corresponding NSX IPAddressAllocation in cache
 		if len(ipAddressAllocationCR.Status.AllocationIPs) > 0 && !ipAddressAllocationCRIDs.Has(string(ipAddressAllocationCR.GetUID())) {
+			// Ignore the IPAddressAllocation if it is under a precreated VPC which does not exist on NSX
+			existed, err := r.VPCService.VerifyPreCreatedVPC(ipAddressAllocationCR.Namespace)
+			if err != nil {
+				return restoreList, err
+			}
+			if !existed {
+				log.Warn("Precreated VPC does not existed for IPAddressAllocation, ignored in restore mode", "Namespace", ipAddressAllocationCR.Namespace, "Name", ipAddressAllocationCR.Name)
+				continue
+			}
 			restoreList = append(restoreList, types.NamespacedName{Namespace: ipAddressAllocationCR.Namespace, Name: ipAddressAllocationCR.Name})
 		}
 	}

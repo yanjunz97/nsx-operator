@@ -1294,7 +1294,7 @@ func TestSubnetPortReconciler_getSubnetBySubnetPort(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, "/subnet-1", subnetPath)
 
@@ -1313,7 +1313,7 @@ func TestSubnetPortReconciler_getSubnetBySubnetPort(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, nil)
 	assert.Contains(t, err.Error(), "failed to find Subnet matching")
 
 	subnetPath, err = r.getSubnetBySubnetPort(&v1alpha1.SubnetPort{
@@ -1331,7 +1331,7 @@ func TestSubnetPortReconciler_getSubnetBySubnetPort(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, "/subnet-3", subnetPath)
 
@@ -1347,7 +1347,7 @@ func TestSubnetPortReconciler_getSubnetBySubnetPort(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, "/subnet-4", subnetPath)
 }

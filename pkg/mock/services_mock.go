@@ -60,6 +60,10 @@ func (m *MockVPCServiceProvider) IsDefaultNSXProject(orgID, projectID string) (b
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockVPCServiceProvider) VerifyPreCreatedVPC(ns string) (existed bool, err error) {
+	return false, nil
+}
+
 type MockSubnetServiceProvider struct {
 	mock.Mock
 }
@@ -117,6 +121,10 @@ func (m *MockSubnetServiceProvider) GetGatewayPrefixFromNSXSubnet(nsxSubnet *mod
 
 func (m *MockSubnetServiceProvider) GetGatewayPrefixFromNSXSubnetStatus(nsxSubnet *model.VpcSubnet) (string, int, error) {
 	return "", 0, nil
+}
+
+func (m *MockSubnetServiceProvider) VerifyPreCreatedSubnet(subnet *v1alpha1.Subnet) (bool, error) {
+	return false, nil
 }
 
 type MockSubnetPortServiceProvider struct {

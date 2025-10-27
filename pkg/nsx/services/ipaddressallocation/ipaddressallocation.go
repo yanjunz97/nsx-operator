@@ -132,7 +132,7 @@ func (service *IPAddressAllocationService) CreateIPAddressAllocationForAddressBi
 		// Only create the NSX IPAddressAllocation in restore stage
 		return nil
 	}
-	if len(addressBinding.Status.IPAddress) == 0 {
+	if addressBinding == nil || len(addressBinding.Status.IPAddress) == 0 {
 		return nil
 	}
 	existingIPAddressAllocation, err := service.GetIPAddressAllocationByOwner(addressBinding)

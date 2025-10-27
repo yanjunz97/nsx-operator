@@ -22,6 +22,7 @@ type VPCServiceProvider interface {
 	ListVPCInfo(ns string) []VPCResourceInfo
 	GetNetworkconfigNameFromNS(ctx context.Context, ns string) (string, error)
 	IsDefaultNSXProject(orgID, projectID string) (bool, error)
+	VerifyPreCreatedVPC(ns string) (existed bool, err error)
 }
 
 type SubnetServiceProvider interface {
@@ -38,6 +39,7 @@ type SubnetServiceProvider interface {
 	GetGatewayPrefixFromNSXSubnet(nsxSubnet *model.VpcSubnet) (string, int, error)
 	GetGatewayPrefixFromNSXSubnetStatus(nsxSubnet *model.VpcSubnet) (string, int, error)
 	GetGatewayPrefixOfSubnet(nsxSubnet *model.VpcSubnet) (string, int, error)
+	VerifyPreCreatedSubnet(subnet *v1alpha1.Subnet) (bool, error)
 }
 
 type SubnetPortServiceProvider interface {

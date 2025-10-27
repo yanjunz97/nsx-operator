@@ -428,9 +428,22 @@ func (r *SubnetReconciler) getRestoreList() ([]types.NamespacedName, error) {
 		return restoreList, err
 	}
 	for _, subnetCR := range subnetList.Items {
-		// Restore a Subnet if it has NetworkAddresses
+		// Not restore a Subnet if it does not have NetworkAddresses
+		if len(subnetCR.Status.NetworkAddresses) == 0 {
+			continue
+		}
+		// Ignore the Subnet if it is under a precreated VPC which does not exist on NSX
+		existed, err := r.VPCService.VerifyPreCreatedVPC(subnetCR.Namespace)
+		if err != nil {
+			return restoreList, err
+		}
+		if !existed {
+			log.Warn("Precreated VPC does not existed for Subnet, ignored in restore mode", "Namespace", subnetCR.Namespace, "Name", subnetCR.Name)
+			continue
+		}
+		// Not restore shared Subnet
 		// Not filter the Subnet in cache as it might be updated
-		if len(subnetCR.Status.NetworkAddresses) > 0 {
+		if !servicecommon.IsSharedSubnet(&subnetCR) {
 			restoreList = append(restoreList, types.NamespacedName{Namespace: subnetCR.Namespace, Name: subnetCR.Name})
 		}
 	}

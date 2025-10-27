@@ -440,8 +440,41 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 		return restoreList, err
 	}
 	for _, subnetport := range subnetPortList.Items {
-		// Restore a SubnetPort if SubnetPort CR has status updated but no corresponding NSX Subnetport in cache
+		// Restore a SubnetPort if SubnetPort CR has status updated but no corresponding NSX SubnetPort in cache
 		if len(subnetport.Status.NetworkInterfaceConfig.IPAddresses) > 0 && !nsxSubnetPortCRIDs.Has(string(subnetport.GetUID())) {
+			// Ignore the SubnetPort if it is under a precreated Subnet which does not exist on NSX
+			if subnetport.Spec.Subnet != "" {
+				subnetCR, isParentResourceTerminating, err := r.getSubnetCR(context.TODO(), &subnetport)
+				if err != nil {
+					return restoreList, err
+				}
+				// Not restore the SubnetPort if the Subnet is being deleted
+				if isParentResourceTerminating {
+					log.Info("Subnet is terminating, skip SubnetPort restore", "Subnet", subnetport.Spec.Subnet, "Namespace", subnetport.Namespace, "Name", subnetport.Name)
+					continue
+				}
+				existed, err := r.SubnetService.VerifyPreCreatedSubnet(subnetCR)
+				if err != nil {
+					return restoreList, err
+				}
+				if !existed {
+					log.Warn("Precreated Subnet does not existed for SubnetPort, ignored in restore mode", "Subnet", subnetport.Spec.Subnet, "Namespace", subnetport.Namespace, "Name", subnetport.Name)
+					continue
+				}
+				// Restore the SubnetPort if the shared Subnet exists no matter of the vpc status of the Namespace
+				if servicecommon.IsSharedSubnet(subnetCR) {
+					restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
+				}
+			}
+			// Ignore the SubnetPort if it is under a precreated VPC which does not exist on NSX
+			existed, err := r.VPCService.VerifyPreCreatedVPC(subnetport.Namespace)
+			if err != nil {
+				return restoreList, err
+			}
+			if !existed {
+				log.Warn("Precreated VPC does not existed for SubnetPort, ignored in restore mode", "Namespace", subnetport.Namespace, "Name", subnetport.Name)
+				continue
+			}
 			restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
 			continue
 		}
@@ -676,10 +709,18 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 	return nil
 }
 
-func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.SubnetPort) (string, error) {
+func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.SubnetPort, subnetCR *v1alpha1.Subnet) (string, error) {
 	var subnets []*model.VpcSubnet
 	if len(subnetPort.Spec.Subnet) > 0 {
-		subnets = r.SubnetService.ListSubnetByName(subnetPort.Namespace, subnetPort.Spec.Subnet)
+		if subnetCR == nil {
+			err := fmt.Errorf("failed to get Subnet CR %s/%s", subnetPort.Namespace, subnetPort.Spec.Subnet)
+			return "", err
+		}
+		nsxSubnet, err := r.SubnetService.GetSubnetByCR(subnetCR)
+		if err != nil {
+			return "", err
+		}
+		subnets = append(subnets, nsxSubnet)
 	} else if len(subnetPort.Spec.SubnetSet) > 0 {
 		subnets = r.SubnetService.ListSubnetBySubnetSetName(subnetPort.Namespace, subnetPort.Spec.SubnetSet)
 	} else {
@@ -709,7 +750,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 	if r.restoreMode {
 		// For restore case, SubnetPort will be created on the Subnet with matching CIDR
 		if subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway != "" {
-			subnetPath, err = r.getSubnetBySubnetPort(subnetPort)
+			subnetPath, err = r.getSubnetBySubnetPort(subnetPort, subnetCR)
 			if err != nil {
 				log.Error(err, "Failed to find Subnet for restored SubnetPort", "SubnetPort", subnetPort)
 				return

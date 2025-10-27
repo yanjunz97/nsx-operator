@@ -53,6 +53,11 @@ type VPCService struct {
 	common.Service
 	VpcStore *VPCStore
 	LbsStore *LBSStore
+	// preCreatedVpcExistenceMap is a map of namespace -> whether the Vpc exists in NSX.
+	// It is only used in restore mode.
+	preCreatedVpcExistenceMap map[string]bool
+	// mutex to protect the sharedSubnetExistenceMap
+	preCreatedVpcExistenceMapMutex sync.RWMutex
 }
 
 func (s *VPCService) GetDefaultNetworkConfig() (*v1alpha1.VPCNetworkConfiguration, error) {
@@ -148,7 +153,10 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error, 2)
 
-	VPCService := &VPCService{Service: service}
+	VPCService := &VPCService{
+		Service:                   service,
+		preCreatedVpcExistenceMap: make(map[string]bool),
+	}
 	VPCService.VpcStore = &VPCStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
 			common.TagScopeNamespaceUID: vpcIndexNamespaceIDFunc,
@@ -467,6 +475,44 @@ func isNamespaceReady(nsObj *v1.Namespace) bool {
 		}
 	}
 	return false
+}
+
+// If the Namespace is a precreated VPC, check if the VPC existed in NSX
+// It returns true if this is a auto created vpc or the NSX VPC exists
+func (s *VPCService) VerifyPreCreatedVPC(ns string) (existed bool, err error) {
+	nc, err := s.GetVPCNetworkConfigByNamespace(ns)
+	if err != nil {
+		log.Error(err, "Failed to get NetworkConfig for Namespace", "Namespace", ns)
+		return false, err
+	}
+	if IsPreCreatedVPC(nc) {
+		s.preCreatedVpcExistenceMapMutex.RLock()
+		existed, ok := s.preCreatedVpcExistenceMap[ns]
+		s.preCreatedVpcExistenceMapMutex.RUnlock()
+		if ok {
+			return existed, nil
+		}
+		_, err = s.GetVPCFromNSXByPath(nc.Spec.VPC)
+		if err != nil {
+			if nsxErr, ok := err.(*nsxutil.NSXApiError); ok {
+				if nsxErr.Type() == stderrors.ErrorType_NOT_FOUND {
+					log.Warn("Precreated VPC does not existed in NSX", "VPC", nc.Spec.VPC)
+					s.updateSharedSubnetExistenceMap(ns, false)
+					return false, nil
+				}
+			}
+			log.Error(err, "Failed to get VPC from NSX", "VPC", nc.Spec.VPC)
+			return false, err
+		}
+	}
+	s.updateSharedSubnetExistenceMap(ns, true)
+	return true, nil
+}
+
+func (s *VPCService) updateSharedSubnetExistenceMap(ns string, existed bool) {
+	s.preCreatedVpcExistenceMapMutex.Lock()
+	s.preCreatedVpcExistenceMap[ns] = existed
+	s.preCreatedVpcExistenceMapMutex.Unlock()
 }
 
 func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.NetworkInfo, nc *v1alpha1.VPCNetworkConfiguration, lbProvider LBProvider, serviceClusterReady bool, restoreMode bool) (*model.Vpc, error) {

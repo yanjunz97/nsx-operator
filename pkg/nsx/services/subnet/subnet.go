@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,6 +44,11 @@ type SharedSubnetData struct {
 	SharedSubnetResourceMap map[string]sets.Set[types.NamespacedName]
 	// mutex to protect the SharedSubnetResourceMap
 	sharedSubnetResourceMapMutex sync.RWMutex
+	// sharedSubnetExistenceMap is a map of associatedResource -> whether the Subnet exists in NSX.
+	// It is only used in restore mode.
+	sharedSubnetExistenceMap map[string]bool
+	// mutex to protect the sharedSubnetExistenceMap
+	sharedSubnetExistenceMapMutex sync.RWMutex
 }
 
 type SubnetService struct {
@@ -76,7 +82,8 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
 			}),
-			SharedSubnetResourceMap: make(map[string]sets.Set[types.NamespacedName]),
+			SharedSubnetResourceMap:  make(map[string]sets.Set[types.NamespacedName]),
+			sharedSubnetExistenceMap: make(map[string]bool),
 		},
 	}
 
@@ -697,6 +704,43 @@ func (service *SubnetService) BuildSubnetCR(ns, subnetName, vpcFullID, associate
 
 	// Initialize subnetCR from nsxSubnet if available
 	return subnetCR
+}
+
+// If the Subnet is a precreated Subnet, check if the Subnet existed in NSX
+// It returns true if this is an auto created Subnet or the NSX VPC exists
+func (service *SubnetService) VerifyPreCreatedSubnet(subnet *v1alpha1.Subnet) (bool, error) {
+	if !common.IsSharedSubnet(subnet) {
+		return true, nil
+	}
+	associatedResource := subnet.Annotations[common.AnnotationAssociatedResource]
+
+	service.sharedSubnetExistenceMapMutex.RLock()
+	existed, ok := service.sharedSubnetExistenceMap[associatedResource]
+	service.sharedSubnetExistenceMapMutex.RUnlock()
+	if ok {
+		return existed, nil
+	}
+
+	_, err := service.GetNSXSubnetByAssociatedResource(associatedResource)
+	if err != nil {
+		if nsxErr, ok := err.(*nsxutil.NSXApiError); ok {
+			if nsxErr.Type() == stderrors.ErrorType_NOT_FOUND {
+				log.Warn("Precreated Subnet does not existed in NSX", "associatedResource", associatedResource)
+				service.updateSharedSubnetExistenceMap(associatedResource, false)
+				return false, nil
+			}
+		}
+		log.Error(err, "Failed to get Subnet from NSX", "associatedResource", associatedResource)
+		return false, err
+	}
+	service.updateSharedSubnetExistenceMap(associatedResource, true)
+	return true, nil
+}
+
+func (service *SubnetService) updateSharedSubnetExistenceMap(associatedResource string, existed bool) {
+	service.sharedSubnetExistenceMapMutex.Lock()
+	service.sharedSubnetExistenceMap[associatedResource] = existed
+	service.sharedSubnetExistenceMapMutex.Unlock()
 }
 
 // GetNSXSubnetFromCacheOrAPI retrieves the NSX subnet from cache if available, otherwise from the NSX API
