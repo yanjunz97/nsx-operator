@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"time"
 
@@ -304,6 +306,11 @@ func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
 
 func main() {
 	log.Info("Starting NSX Operator")
+	go func() {
+		if err := http.ListenAndServe("0.0.0.0:6061", nil); err != nil {
+			log.Error(err, "pprof server failed")
+		}
+	}()
 	cfg, err := pkgutil.GetConfig()
 	if err != nil {
 		log.Error(err, "Failed to get rest config for manager")
@@ -397,9 +404,7 @@ func checkLicense(nsxClient *nsx.Client, interval int) {
 
 func updateLicensePeriodically(nsxClient *nsx.Client, interval time.Duration) {
 	for {
-		select {
-		case <-time.After(interval):
-		}
+		time.Sleep(interval)
 		err := nsxClient.ValidateLicense(false)
 		if err != nil {
 			os.Exit(1)

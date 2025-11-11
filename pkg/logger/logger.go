@@ -108,8 +108,10 @@ func ZapCustomLogger(cfDebug bool, cfLogLevel int) CustomLogger {
 
 	// Create the custom console writer with zap-like formatting
 	consoleWriter := zerolog.ConsoleWriter{
-		Out:        os.Stdout,
-		TimeFormat: logTmFmtWithMS,
+		Out: os.Stdout,
+		FormatTimestamp: func(i interface{}) string {
+			return ""
+		},
 		FormatLevel: func(i interface{}) string {
 			levelStr := strings.ToUpper(fmt.Sprintf("%s", i))
 			switch levelStr {
@@ -166,7 +168,6 @@ func ZapCustomLogger(cfDebug bool, cfLogLevel int) CustomLogger {
 	zeroLogger := zerolog.New(consoleWriter).
 		Level(zeroLogLevel).
 		With().
-		Timestamp().
 		CallerWithSkipFrameCount(3).
 		Logger()
 
