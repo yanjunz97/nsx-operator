@@ -226,18 +226,18 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		}
 
 		// Create controllers which only supports VPC
-		subnetSetReconcile = subnetset.NewSubnetSetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService)
+		subnetSetReconcile = subnetset.NewSubnetSetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService, hookServer)
 		reconcilerList = append(
 			reconcilerList,
 			networkinfocontroller.NewNetworkInfoReconciler(mgr, vpcService, ipblocksInfoService),
 			namespacecontroller.NewNamespaceReconciler(mgr, cf, vpcService, subnetService),
-			subnet.NewSubnetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService),
+			subnet.NewSubnetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService, hookServer),
 			subnetSetReconcile,
 			node.NewNodeReconciler(mgr, nodeService),
-			staticroutecontroller.NewStaticRouteReconciler(mgr, staticRouteService),
+			staticroutecontroller.NewStaticRouteReconciler(mgr, staticRouteService, hookServer),
 			// SubnetPort may use IPAddressAllocation for AddressBinding, reconcile IPAddressAllocation first
-			ipaddressallocation.NewIPAddressAllocationReconciler(mgr, ipAddressAllocationService, vpcService),
-			subnetport.NewSubnetPortReconciler(mgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService),
+			ipaddressallocation.NewIPAddressAllocationReconciler(mgr, ipAddressAllocationService, vpcService, hookServer),
+			subnetport.NewSubnetPortReconciler(mgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService, hookServer),
 			pod.NewPodReconciler(mgr, subnetPortService, subnetService, vpcService, nodeService),
 			networkpolicycontroller.NewNetworkPolicyReconciler(mgr, commonService, vpcService),
 			service.NewServiceLbReconciler(mgr, commonService),
@@ -258,8 +258,15 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	}
 
 	if restoreMode {
+		// To support running webhook server in restore mode
+		// Update pod labels for webhook service selector
+		err := updatePodLabels(mgr)
+		if err != nil {
+			log.Error(err, "Failed to update Pod labels")
+			panic(err)
+		}
 		subnetSetReconcile.EnableRestoreMode()
-		err := pkgutil.ProcessRestore(reconcilerList, mgr.GetClient())
+		err = pkgutil.ProcessRestore(reconcilerList, mgr.GetClient())
 		if err != nil {
 			log.Error(err, "Failed to process restore")
 			os.Exit(1)
@@ -271,7 +278,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	log.Info("Enter normal mode")
 	for _, reconciler := range reconcilerList {
 		if reconciler != nil {
-			if err := reconciler.StartController(mgr, hookServer); err != nil {
+			if err := reconciler.StartController(mgr); err != nil {
 				log.Error(err, "Failed to start the controllers")
 				os.Exit(1)
 			}

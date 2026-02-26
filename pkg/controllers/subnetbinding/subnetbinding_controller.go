@@ -3,6 +3,7 @@ package subnetbinding
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"time"
 
@@ -19,7 +20,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -52,15 +52,10 @@ func (r *Reconciler) RestoreReconcile() error {
 	return nil
 }
 
-func (r *Reconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+func (r *Reconciler) StartController(mgr ctrl.Manager) error {
 	// Start the controller
 	if err := r.setupWithManager(mgr); err != nil {
 		log.Error(err, "Failed to create controller", "controller", "SubnetConnectionBindingMap")
-		return err
-	}
-	// Setup field indexers
-	if err := r.SetupFieldIndexers(mgr); err != nil {
-		log.Error(err, "Failed to setup field indexers", "controller", "SubnetConnectionBindingMap")
 		return err
 	}
 	// Start garbage collector in a separate goroutine
@@ -71,13 +66,19 @@ func (r *Reconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
 func NewReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnetBindingService *subnetbinding.BindingService) *Reconciler {
 	recorder := mgr.GetEventRecorderFor("subnetconnectionbindingmap-controller")
 	// Create the SubnetConnectionBindingMap Reconciler with the necessary services and configuration
-	return &Reconciler{
+	reconcile := &Reconciler{
 		Client:               mgr.GetClient(),
 		Scheme:               mgr.GetScheme(),
 		SubnetService:        subnetService,
 		SubnetBindingService: subnetBindingService,
 		StatusUpdater:        common.NewStatusUpdater(mgr.GetClient(), subnetBindingService.NSXConfig, recorder, common.MetricResTypeSubnetConnectionBindingMap, "SubnetConnectionBindingMap", "SubnetConnectionBindingMap"),
 	}
+	err := reconcile.SetupFieldIndexers(mgr)
+	if err != nil {
+		log.Error(err, "Failed to setup field indexers for the SubnetConnectionBindingmap controller")
+		os.Exit(1)
+	}
+	return reconcile
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

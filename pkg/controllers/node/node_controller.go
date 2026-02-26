@@ -17,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -121,7 +120,7 @@ func (r *NodeReconciler) CollectGarbage(_ context.Context) error {
 	return nil
 }
 
-func (r *NodeReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+func (r *NodeReconciler) StartController(mgr ctrl.Manager) error {
 	if err := r.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Node")
 		return err

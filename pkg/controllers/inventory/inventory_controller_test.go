@@ -226,7 +226,7 @@ func TestStartInventoryController(t *testing.T) {
 
 		// Start InventoryController
 		controller := NewInventoryController(mockMgr.GetClient(), mockService, mockConfig)
-		err := controller.StartController(mockMgr, nil)
+		err := controller.StartController(mockMgr)
 		assert.Nil(t, err)
 	})
 
@@ -247,7 +247,7 @@ func TestStartInventoryController(t *testing.T) {
 
 		// Start InventoryController
 		controller := NewInventoryController(mockMgr.GetClient(), mockService, mockConfig)
-		err := controller.StartController(mockMgr, nil)
+		err := controller.StartController(mockMgr)
 		assert.Error(t, err)
 	})
 }

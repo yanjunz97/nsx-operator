@@ -25,7 +25,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -796,7 +795,7 @@ func (r *NetworkInfoReconciler) getRestoreList() ([]types.NamespacedName, error)
 	return restoreList, nil
 }
 
-func (r *NetworkInfoReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+func (r *NetworkInfoReconciler) StartController(mgr ctrl.Manager) error {
 	if err := r.Start(mgr); err != nil {
 		log.Error(err, "Failed to create networkinfo controller", "controller", "NetworkInfo")
 		return err

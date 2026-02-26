@@ -282,7 +282,7 @@ func TestServiceLbReconciler_StartController(t *testing.T) {
 			defer patches.Reset()
 
 			r := NewServiceLbReconciler(mockMgr, commonService)
-			err := r.StartController(mockMgr, nil)
+			err := r.StartController(mockMgr)
 
 			if testCase.expectErrStr != "" {
 				assert.Contains(t, err.Error(), testCase.expectErrStr)

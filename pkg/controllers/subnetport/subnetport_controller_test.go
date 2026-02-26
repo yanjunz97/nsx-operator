@@ -2373,8 +2373,8 @@ func TestSubnetPortReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	defer patches.Reset()
-	r := NewSubnetPortReconciler(mockMgr, subnetPortService, subnetService, vpcService, &mockIPAddressAllocationService)
-	err := r.StartController(mockMgr, nil)
+	r := NewSubnetPortReconciler(mockMgr, subnetPortService, subnetService, vpcService, &mockIPAddressAllocationService, nil)
+	err := r.StartController(mockMgr)
 	assert.Nil(t, err)
 }
 

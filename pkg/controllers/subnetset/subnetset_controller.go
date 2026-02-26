@@ -600,8 +600,8 @@ func (r *SubnetSetReconciler) getRestoreList() ([]types.NamespacedName, error) {
 	return restoreList, nil
 }
 
-func (r *SubnetSetReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {
-	if err := r.Start(mgr, hookServer); err != nil {
+func (r *SubnetSetReconciler) StartController(mgr ctrl.Manager) error {
+	if err := r.Start(mgr); err != nil {
 		log.Error(err, "Failed to create controller", "controller", "SubnetSet")
 		return err
 	}
@@ -611,7 +611,7 @@ func (r *SubnetSetReconciler) StartController(mgr ctrl.Manager, hookServer webho
 
 func NewSubnetSetReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService,
 	subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider,
-	bindingService *subnetbinding.BindingService) *SubnetSetReconciler {
+	bindingService *subnetbinding.BindingService, hookServer webhook.Server) *SubnetSetReconciler {
 	subnetsetReconciler := &SubnetSetReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
@@ -623,27 +623,27 @@ func NewSubnetSetReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetServic
 		Recorder:   mgr.GetEventRecorderFor("subnetset-controller"),
 	}
 	subnetsetReconciler.StatusUpdater = common.NewStatusUpdater(subnetsetReconciler.Client, subnetsetReconciler.SubnetService.NSXConfig, subnetsetReconciler.Recorder, MetricResTypeSubnetSet, "Subnet", "SubnetSet")
-	return subnetsetReconciler
-}
-
-// Start setup manager
-func (r *SubnetSetReconciler) Start(mgr ctrl.Manager, hookServer webhook.Server) error {
-	err := r.setupWithManager(mgr)
-	if err != nil {
-		return err
-	}
 	if hookServer != nil {
 		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-subnetset",
 			&webhook.Admission{
 				Handler: &SubnetSetValidator{
 					Client:            mgr.GetClient(),
 					decoder:           admission.NewDecoder(mgr.GetScheme()),
-					nsxClient:         r.SubnetService.NSXClient,
-					vpcService:        r.VPCService,
-					subnetService:     r.SubnetService,
-					subnetPortService: r.SubnetPortService,
+					nsxClient:         subnetsetReconciler.SubnetService.NSXClient,
+					vpcService:        subnetsetReconciler.VPCService,
+					subnetService:     subnetsetReconciler.SubnetService,
+					subnetPortService: subnetsetReconciler.SubnetPortService,
 				},
 			})
+	}
+	return subnetsetReconciler
+}
+
+// Start setup manager
+func (r *SubnetSetReconciler) Start(mgr ctrl.Manager) error {
+	err := r.setupWithManager(mgr)
+	if err != nil {
+		return err
 	}
 	return nil
 }

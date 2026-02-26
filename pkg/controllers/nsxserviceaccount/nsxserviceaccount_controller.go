@@ -25,7 +25,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 
@@ -304,7 +303,7 @@ func (r *NSXServiceAccountReconciler) RestoreReconcile() error {
 	return nil
 }
 
-func (r *NSXServiceAccountReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+func (r *NSXServiceAccountReconciler) StartController(mgr ctrl.Manager) error {
 	log.Info("Starting NSXServiceAccountController")
 	if err := r.Start(mgr); err != nil {
 		log.Error(err, "Failed to create controller", "controller", "NSXServiceAccount")

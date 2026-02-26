@@ -340,12 +340,7 @@ func TestStaticRouteReconciler_Start(t *testing.T) {
 		Scheme:  nil,
 		Service: service,
 	}
-	err := r.Start(mgr, nil)
-	assert.NotEqual(t, err, nil)
-
-	// hook server
-	hookServer := webhook.NewServer(webhook.Options{})
-	err = r.Start(mgr, hookServer)
+	err := r.Start(mgr)
 	assert.NotEqual(t, err, nil)
 }
 
@@ -362,8 +357,8 @@ func TestStaticRouteReconciler_StartController(t *testing.T) {
 	})
 	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 	})
-	r := NewStaticRouteReconciler(mockMgr, staticRouteService)
-	err := r.StartController(mockMgr, nil)
+	r := NewStaticRouteReconciler(mockMgr, staticRouteService, nil)
+	err := r.StartController(mockMgr)
 	assert.Nil(t, err)
 	patches.Reset()
 
@@ -374,8 +369,8 @@ func TestStaticRouteReconciler_StartController(t *testing.T) {
 	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 	})
 	defer patches.Reset()
-	r = NewStaticRouteReconciler(mockMgr, staticRouteService)
-	err = r.StartController(mockMgr, nil)
+	r = NewStaticRouteReconciler(mockMgr, staticRouteService, nil)
+	err = r.StartController(mockMgr)
 	assert.Equal(t, "setupWithManager error", err.Error())
 
 	// start with webhook server
@@ -386,8 +381,8 @@ func TestStaticRouteReconciler_StartController(t *testing.T) {
 	})
 	defer patches.Reset()
 	hookServer := webhook.NewServer(webhook.Options{})
-	r = NewStaticRouteReconciler(mockMgr, staticRouteService)
-	err = r.StartController(mockMgr, hookServer)
+	r = NewStaticRouteReconciler(mockMgr, staticRouteService, hookServer)
+	err = r.StartController(mockMgr)
 	assert.Nil(t, err)
 }
 

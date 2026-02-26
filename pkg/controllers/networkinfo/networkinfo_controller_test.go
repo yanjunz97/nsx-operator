@@ -1893,7 +1893,7 @@ func TestNetworkInfoReconciler_StartController(t *testing.T) {
 	})
 	defer patches.Reset()
 	r := NewNetworkInfoReconciler(mockMgr, vpcService, ipblocksInfoService)
-	err := r.StartController(mockMgr, nil)
+	err := r.StartController(mockMgr)
 	assert.Nil(t, err)
 	// Sleep to make sure the patches are reset after the goroutine in StartController get executed
 	time.Sleep(time.Second)

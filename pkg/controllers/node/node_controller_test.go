@@ -206,7 +206,7 @@ func TestNodeReconciler_StartController(t *testing.T) {
 	})
 	defer patches.Reset()
 	r := NewNodeReconciler(mockMgr, nodeService)
-	err := r.StartController(mockMgr, nil)
+	err := r.StartController(mockMgr)
 	assert.Nil(t, err)
 }
 

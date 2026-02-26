@@ -776,7 +776,7 @@ func TestPodReconciler_StartController(t *testing.T) {
 	})
 	defer patches.Reset()
 	r := NewPodReconciler(mockMgr, subnetPortService, subnetService, vpcService, nodeService)
-	err := r.StartController(mockMgr, nil)
+	err := r.StartController(mockMgr)
 	assert.Nil(t, err)
 }
 

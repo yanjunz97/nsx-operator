@@ -180,19 +180,10 @@ func (r *StaticRouteReconciler) setupWithManager(mgr ctrl.Manager) error {
 }
 
 // Start setup manager and launch GC
-func (r *StaticRouteReconciler) Start(mgr ctrl.Manager, hookServer webhook.Server) error {
+func (r *StaticRouteReconciler) Start(mgr ctrl.Manager) error {
 	err := r.setupWithManager(mgr)
 	if err != nil {
 		return err
-	}
-	if hookServer != nil {
-		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-staticroute",
-			&webhook.Admission{
-				Handler: &StaticRouteValidator{
-					Client:  mgr.GetClient(),
-					decoder: admission.NewDecoder(mgr.GetScheme()),
-				},
-			})
 	}
 	return nil
 }
@@ -249,17 +240,16 @@ func (r *StaticRouteReconciler) RestoreReconcile() error {
 	return nil
 }
 
-func (r *StaticRouteReconciler) StartController(mgr ctrl.Manager, webhook webhook.Server) error {
-	if err := r.Start(mgr, webhook); err != nil {
+func (r *StaticRouteReconciler) StartController(mgr ctrl.Manager) error {
+	if err := r.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "StaticRoute")
 		return err
 	}
-
 	go common.GenericGarbageCollector(make(chan bool), commonservice.GCInterval, r.CollectGarbage)
 	return nil
 }
 
-func NewStaticRouteReconciler(mgr ctrl.Manager, staticRouteService *staticroute.StaticRouteService) *StaticRouteReconciler {
+func NewStaticRouteReconciler(mgr ctrl.Manager, staticRouteService *staticroute.StaticRouteService, hookServer webhook.Server) *StaticRouteReconciler {
 	staticRouteReconcile := &StaticRouteReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
@@ -267,5 +257,14 @@ func NewStaticRouteReconciler(mgr ctrl.Manager, staticRouteService *staticroute.
 	}
 	staticRouteReconcile.Service = staticRouteService
 	staticRouteReconcile.StatusUpdater = common.NewStatusUpdater(staticRouteReconcile.Client, staticRouteReconcile.Service.NSXConfig, staticRouteReconcile.Recorder, MetricResTypeStaticRoute, "StaticRoute", "StaticRoute")
+	if hookServer != nil {
+		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-staticroute",
+			&webhook.Admission{
+				Handler: &StaticRouteValidator{
+					Client:  mgr.GetClient(),
+					decoder: admission.NewDecoder(mgr.GetScheme()),
+				},
+			})
+	}
 	return staticRouteReconcile
 }

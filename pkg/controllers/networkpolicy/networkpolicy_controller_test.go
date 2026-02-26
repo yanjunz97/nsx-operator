@@ -594,7 +594,7 @@ func TestStartNetworkPolicyController(t *testing.T) {
 			defer patches.Reset()
 
 			r := NewNetworkPolicyReconciler(mockMgr, commonService, vpcService)
-			err := r.StartController(mockMgr, nil)
+			err := r.StartController(mockMgr)
 
 			if testCase.expectErrStr != "" {
 				assert.ErrorContains(t, err, testCase.expectErrStr)

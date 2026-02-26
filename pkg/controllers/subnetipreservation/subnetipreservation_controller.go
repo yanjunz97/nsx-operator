@@ -3,6 +3,7 @@ package subnetipreservation
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -52,24 +52,25 @@ func (r *Reconciler) RestoreReconcile() error {
 func NewReconciler(mgr ctrl.Manager, ipReservationService *subnetipreservation.IPReservationService, subnetService servicecommon.SubnetServiceProvider) *Reconciler {
 	recorder := mgr.GetEventRecorderFor("subnetipreservation-controller")
 	// Create the SubnetIPReservation Reconciler with the necessary services and configuration
-	return &Reconciler{
+	subnetIPReservationReconcile := &Reconciler{
 		Client:               mgr.GetClient(),
 		Scheme:               mgr.GetScheme(),
 		IPReservationService: ipReservationService,
 		SubnetService:        subnetService,
 		StatusUpdater:        common.NewStatusUpdater(mgr.GetClient(), ipReservationService.NSXConfig, recorder, common.MetricResTypeSubnetIPReservation, "SubnetIPReservation", "SubnetIPReservation"),
 	}
+	err := subnetIPReservationReconcile.SetupFieldIndexers(mgr)
+	if err != nil {
+		log.Error(err, "Failed to setup field indexers for the SubnetIPReservation controller")
+		os.Exit(1)
+	}
+	return subnetIPReservationReconcile
 }
 
-func (r *Reconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+func (r *Reconciler) StartController(mgr ctrl.Manager) error {
 	// Start the controller
 	if err := r.setupWithManager(mgr); err != nil {
 		log.Error(err, "Failed to create controller", "controller", "SubnetIPReservation")
-		return err
-	}
-	// Setup field indexers
-	if err := r.SetupFieldIndexers(mgr); err != nil {
-		log.Error(err, "Failed to setup field indexers", "controller", "SubnetIPReservation")
 		return err
 	}
 	// Start garbage collector in a separate goroutine

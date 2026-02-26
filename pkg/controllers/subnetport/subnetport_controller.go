@@ -553,25 +553,16 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 	return restoreList, nil
 }
 
-func (r *SubnetPortReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {
+func (r *SubnetPortReconciler) StartController(mgr ctrl.Manager) error {
 	if err := r.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SubnetPort")
 		return err
-	}
-	if hookServer != nil {
-		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-addressbinding",
-			&webhook.Admission{
-				Handler: &AddressBindingValidator{
-					Client:  mgr.GetClient(),
-					decoder: admission.NewDecoder(mgr.GetScheme()),
-				},
-			})
 	}
 	go common.GenericGarbageCollector(make(chan bool), servicecommon.SubnetPortGCInterval, r.CollectGarbage)
 	return nil
 }
 
-func NewSubnetPortReconciler(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService *subnet.SubnetService, vpcService *vpc.VPCService, ipAddressAllocationService servicecommon.IPAddressAllocationServiceProvider) *SubnetPortReconciler {
+func NewSubnetPortReconciler(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService *subnet.SubnetService, vpcService *vpc.VPCService, ipAddressAllocationService servicecommon.IPAddressAllocationServiceProvider, hookServer webhook.Server) *SubnetPortReconciler {
 	subnetPortReconciler := &SubnetPortReconciler{
 		Client:                     mgr.GetClient(),
 		Scheme:                     mgr.GetScheme(),
@@ -588,6 +579,15 @@ func NewSubnetPortReconciler(mgr ctrl.Manager, subnetPortService *subnetport.Sub
 		os.Exit(1)
 	}
 	subnetPortReconciler.StatusUpdater = common.NewStatusUpdater(subnetPortReconciler.Client, subnetPortReconciler.SubnetPortService.NSXConfig, subnetPortReconciler.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
+	if hookServer != nil {
+		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-addressbinding",
+			&webhook.Admission{
+				Handler: &AddressBindingValidator{
+					Client:  mgr.GetClient(),
+					decoder: admission.NewDecoder(mgr.GetScheme()),
+				},
+			})
+	}
 	return subnetPortReconciler
 }
 

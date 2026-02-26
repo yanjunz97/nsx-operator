@@ -1206,8 +1206,8 @@ func TestStartSubnetSetController(t *testing.T) {
 			patches := testCase.patches()
 			defer patches.Reset()
 
-			reconcile := NewSubnetSetReconciler(mockMgr, subnetService, subnetPortService, vpcService, subnetBindingService)
-			err := reconcile.StartController(mockMgr, testCase.webHookServer)
+			reconcile := NewSubnetSetReconciler(mockMgr, subnetService, subnetPortService, vpcService, subnetBindingService, testCase.webHookServer)
+			err := reconcile.StartController(mockMgr)
 
 			if testCase.expectErrStr != "" {
 				assert.ErrorContains(t, err, testCase.expectErrStr)

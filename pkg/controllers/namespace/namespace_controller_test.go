@@ -303,7 +303,7 @@ func TestNamespaceReconciler_StartController(t *testing.T) {
 	})
 	defer patches.Reset()
 	r := NewNamespaceReconciler(mockMgr, nil, vpcService, subnetService)
-	err := r.StartController(mockMgr, nil)
+	err := r.StartController(mockMgr)
 	assert.Nil(t, err)
 }
 

@@ -210,11 +210,24 @@ func (r *IPAddressAllocationReconciler) getRestoreList() ([]types.NamespacedName
 	return restoreList, nil
 }
 
-func (r *IPAddressAllocationReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {
+func (r *IPAddressAllocationReconciler) StartController(mgr ctrl.Manager) error {
 	if err := r.setupWithManager(mgr); err != nil {
 		log.Error(err, "Failed to create ipaddressallocation controller")
 		return err
 	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
+	return nil
+}
+
+func NewIPAddressAllocationReconciler(mgr ctrl.Manager, ipAddressAllocationService *ipaddressallocation.IPAddressAllocationService, vpcService servicecommon.VPCServiceProvider, hookServer webhook.Server) *IPAddressAllocationReconciler {
+	ipAddressAllocationReconciler := &IPAddressAllocationReconciler{
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		Service:    ipAddressAllocationService,
+		VPCService: vpcService,
+		Recorder:   mgr.GetEventRecorderFor("ipaddressallocation-controller"),
+	}
+	ipAddressAllocationReconciler.StatusUpdater = common.NewStatusUpdater(ipAddressAllocationReconciler.Client, ipAddressAllocationReconciler.Service.NSXConfig, ipAddressAllocationReconciler.Recorder, common.MetricResTypeNetworkInfo, "IPAddressAllocation", "IPAddressAllocation")
 	if hookServer != nil {
 		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-ipaddressallocation",
 			&webhook.Admission{
@@ -224,18 +237,5 @@ func (r *IPAddressAllocationReconciler) StartController(mgr ctrl.Manager, hookSe
 				},
 			})
 	}
-	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
-	return nil
-}
-
-func NewIPAddressAllocationReconciler(mgr ctrl.Manager, ipAddressAllocationService *ipaddressallocation.IPAddressAllocationService, vpcService servicecommon.VPCServiceProvider) *IPAddressAllocationReconciler {
-	ipAddressAllocationReconciler := &IPAddressAllocationReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Service:    ipAddressAllocationService,
-		VPCService: vpcService,
-		Recorder:   mgr.GetEventRecorderFor("ipaddressallocation-controller"),
-	}
-	ipAddressAllocationReconciler.StatusUpdater = common.NewStatusUpdater(ipAddressAllocationReconciler.Client, ipAddressAllocationReconciler.Service.NSXConfig, ipAddressAllocationReconciler.Recorder, common.MetricResTypeNetworkInfo, "IPAddressAllocation", "IPAddressAllocation")
 	return ipAddressAllocationReconciler
 }

@@ -13,7 +13,6 @@ import (
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 )
@@ -29,7 +28,7 @@ var (
 type ReconcilerProvider interface {
 	RestoreReconcile() error
 	CollectGarbage(ctx context.Context) error
-	StartController(mgr ctrl.Manager, hookServer webhook.Server) error
+	StartController(mgr ctrl.Manager) error
 }
 
 func CompareNSXRestore(k8sClient client.Client, nsxClient *nsx.Client) (bool, error) {

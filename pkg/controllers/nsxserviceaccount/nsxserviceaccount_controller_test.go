@@ -631,7 +631,7 @@ func TestNSXServiceAccountReconciler_StartController(t *testing.T) {
 	})
 	defer patches.Reset()
 	reconciler := NewNSXServiceAccountReconciler(mockMgr, service)
-	err := reconciler.StartController(mockMgr, nil)
+	err := reconciler.StartController(mockMgr)
 	assert.Nil(t, err)
 }
 

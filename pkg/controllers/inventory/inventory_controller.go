@@ -11,7 +11,6 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -71,7 +70,7 @@ func NewInventoryController(Client client.Client, service *inventory.InventorySe
 	return c
 }
 
-func (c *InventoryController) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+func (c *InventoryController) StartController(mgr ctrl.Manager) error {
 	if err := c.setupWithManager(mgr); err != nil {
 		log.Error(err, "Failed to create inventory controller", "controller", "Inventory")
 		return err

@@ -44,7 +44,7 @@ func TestReconciler_StartController(t *testing.T) {
 	})
 	defer patches.Reset()
 	r := createFakeReconciler()
-	err := r.StartController(mockMgr, nil)
+	err := r.StartController(mockMgr)
 	assert.Nil(t, err)
 }
 

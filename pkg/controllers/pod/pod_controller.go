@@ -26,7 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -286,7 +285,7 @@ func (r *PodReconciler) getRestoreList() ([]types.NamespacedName, error) {
 	return restoreList, nil
 }
 
-func (r *PodReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+func (r *PodReconciler) StartController(mgr ctrl.Manager) error {
 	if err := r.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Pod")
 		return err

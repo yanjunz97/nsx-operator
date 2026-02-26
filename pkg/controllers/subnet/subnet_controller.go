@@ -470,9 +470,9 @@ func (r *SubnetReconciler) getRestoreList() ([]types.NamespacedName, error) {
 	return restoreList, nil
 }
 
-func (r *SubnetReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {
+func (r *SubnetReconciler) StartController(mgr ctrl.Manager) error {
 	// Start the controller
-	if err := r.start(mgr, hookServer); err != nil {
+	if err := r.start(mgr); err != nil {
 		log.Error(err, "Failed to create controller", "controller", "Subnet")
 		return err
 	}
@@ -481,7 +481,7 @@ func (r *SubnetReconciler) StartController(mgr ctrl.Manager, hookServer webhook.
 	return nil
 }
 
-func NewSubnetReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider, bindingService *subnetbinding.BindingService) *SubnetReconciler {
+func NewSubnetReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider, bindingService *subnetbinding.BindingService, hookServer webhook.Server) *SubnetReconciler {
 	// Create the Subnet Reconciler with the necessary services and configuration
 	subnetReconciler := &SubnetReconciler{
 		Client:            mgr.GetClient(),
@@ -493,26 +493,25 @@ func NewSubnetReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, 
 		Recorder:          mgr.GetEventRecorderFor("subnet-controller"),
 	}
 	subnetReconciler.StatusUpdater = common.NewStatusUpdater(subnetReconciler.Client, subnetReconciler.SubnetService.NSXConfig, subnetReconciler.Recorder, MetricResTypeSubnet, "Subnet", "Subnet")
-	return subnetReconciler
-}
-
-// start sets up the manager for the Subnet Reconciler
-func (r *SubnetReconciler) start(mgr ctrl.Manager, hookServer webhook.Server) error {
-	err := r.setupWithManager(mgr)
-	if err != nil {
-		return err
-	}
 	if hookServer != nil {
 		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-subnet",
 			&webhook.Admission{
 				Handler: &SubnetValidator{
 					Client:    mgr.GetClient(),
 					decoder:   admission.NewDecoder(mgr.GetScheme()),
-					nsxClient: r.SubnetService.NSXClient,
+					nsxClient: subnetReconciler.SubnetService.NSXClient,
 				},
 			})
 	}
+	return subnetReconciler
+}
 
+// start sets up the manager for the Subnet Reconciler
+func (r *SubnetReconciler) start(mgr ctrl.Manager) error {
+	err := r.setupWithManager(mgr)
+	if err != nil {
+		return err
+	}
 	// Start the shared subnet polling goroutine
 	go r.pollSharedSubnets(make(chan bool))
 

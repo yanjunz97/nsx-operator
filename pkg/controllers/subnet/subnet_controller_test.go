@@ -943,8 +943,8 @@ func TestStartSubnetController(t *testing.T) {
 			patches := testCase.patches()
 			defer patches.Reset()
 
-			reconciler := NewSubnetReconciler(mockMgr, subnetService, subnetPortService, vpcService, bindingService)
-			err := reconciler.StartController(mockMgr, nil)
+			reconciler := NewSubnetReconciler(mockMgr, subnetService, subnetPortService, vpcService, bindingService, nil)
+			err := reconciler.StartController(mockMgr)
 
 			if testCase.expectErrStr != "" {
 				assert.ErrorContains(t, err, testCase.expectErrStr)

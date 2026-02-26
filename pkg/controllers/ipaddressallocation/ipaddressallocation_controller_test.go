@@ -370,8 +370,8 @@ func TestIPAddressAllocationReconciler_StartController(t *testing.T) {
 		return
 	})
 	defer patches.Reset()
-	r := NewIPAddressAllocationReconciler(mockMgr, ipAddressAllocationService, vpcService)
-	err := r.StartController(mockMgr, nil)
+	r := NewIPAddressAllocationReconciler(mockMgr, ipAddressAllocationService, vpcService, nil)
+	err := r.StartController(mockMgr)
 	assert.Nil(t, err)
 }
 

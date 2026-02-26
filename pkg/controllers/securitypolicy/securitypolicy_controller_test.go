@@ -947,7 +947,7 @@ func TestStartSecurityPolicyController(t *testing.T) {
 			defer patches.Reset()
 
 			r := NewSecurityPolicyReconciler(mgr, commonService, vpcService)
-			err := r.StartController(mgr, nil)
+			err := r.StartController(mgr)
 
 			if testCase.expectErrStr != "" {
 				assert.ErrorContains(t, err, testCase.expectErrStr)
