@@ -207,6 +207,7 @@ _Appears in:_
 | `DHCPDeactivated` |  |
 | `DHCPServer` |  |
 | `DHCPRelay` |  |
+| `DHCPServerStateless` |  |
 
 
 #### DHCPv6ServerAdditionalConfig
@@ -908,7 +909,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `mode` _[DHCPConfigMode](#dhcpconfigmode)_ | DHCP Mode. DHCPDeactivated will be used if it is not defined. |  | Enum: [DHCPServer DHCPRelay DHCPDeactivated] <br /> |
+| `mode` _[DHCPConfigMode](#dhcpconfigmode)_ | DHCP Mode. DHCPDeactivated will be used if it is not defined. |  | Enum: [DHCPServer DHCPRelay DHCPDeactivated DHCPServerStateless] <br /> |
 | `dhcpServerAdditionalConfig` _[DHCPServerAdditionalConfig](#dhcpserveradditionalconfig)_ | Additional DHCP server config for a VPC Subnet. |  |  |
 
 
@@ -1236,7 +1237,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If vpc is set, only defaultSubnetSize takes effect, other fields are ignored. |  |  |
+| `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If vpc is set, only defaultSubnetSize and defaultIPv6PrefixLength take effect, other fields are ignored. |  |  |
 | `subnets` _[SharedSubnet](#sharedsubnet) array_ | Shared Subnets the Namespace is associated with. |  |  |
 | `nsxProject` _string_ | NSX Project the Namespace is associated with. |  |  |
 | `vpcConnectivityProfile` _string_ | VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment. |  |  |

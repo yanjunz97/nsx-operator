@@ -873,3 +873,178 @@ func TestGetSubnetPortsID(t *testing.T) {
 		})
 	}
 }
+
+func TestSubnetSetValidator_IPAddressTypeValidation(t *testing.T) {
+	newScheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
+	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).Build()
+	nsxClient := &nsx.Client{}
+	cluster, _ := nsx.NewCluster(&nsx.Config{})
+	nsxClient.Cluster = cluster
+	validator := &SubnetSetValidator{
+		Client:    fakeClient,
+		decoder:   admission.NewDecoder(newScheme),
+		nsxClient: nsxClient,
+		vpcService: &vpc.VPCService{
+			Service: common.Service{},
+		},
+	}
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(validator.vpcService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
+		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "default", VPCID: "ns-1"}}
+	})
+	defer patches.Reset()
+
+	patches.ApplyPrivateMethod(reflect.TypeOf(validator), "validateSubnetNames",
+		func(_ *SubnetSetValidator, _ context.Context, _ string, _ *[]string, _ string) (bool, error) {
+			return true, nil
+		})
+
+	patches.ApplyPrivateMethod(reflect.TypeOf(validator), "validateRemovedSubnets",
+		func(_ *SubnetSetValidator, _ context.Context, _ *v1alpha1.SubnetSet, subnetNames []string) (bool, error) {
+			return true, nil
+		})
+
+	testCases := []struct {
+		name         string
+		username     string
+		operation    admissionv1.Operation
+		oldSubnetSet *v1alpha1.SubnetSet
+		newSubnetSet *v1alpha1.SubnetSet
+		isAllowed    bool
+		msg          string
+	}{
+		{
+			name:      "Create - NSX Operator can set IPAddressType for pre-created SubnetSet",
+			username:  NSXOperatorSA,
+			operation: admissionv1.Create,
+			newSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames:   &[]string{"subnet-1"},
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+				},
+			},
+			isAllowed: true,
+		},
+		{
+			name:      "Create - Regular user cannot set IPAddressType for pre-created SubnetSet",
+			username:  "user-1",
+			operation: admissionv1.Create,
+			newSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames:   &[]string{"subnet-1"},
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+				},
+			},
+			isAllowed: false,
+			msg:       "Pre-created SubnetSet spec.ipAddressType can only be set by NSX Operator",
+		},
+		{
+			name:      "Create - Regular user can create pre-created SubnetSet without IPAddressType",
+			username:  "user-1",
+			operation: admissionv1.Create,
+			newSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-1"},
+				},
+			},
+			isAllowed: true,
+		},
+		{
+			name:      "Update - NSX Operator can update IPAddressType",
+			username:  NSXOperatorSA,
+			operation: admissionv1.Update,
+			oldSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames:   &[]string{"subnet-1"},
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+				},
+			},
+			newSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames:   &[]string{"subnet-1"},
+					IPAddressType: v1alpha1.IPAddressTypeIPv6,
+				},
+			},
+			isAllowed: true,
+		},
+		{
+			name:      "Update - Regular user cannot update IPAddressType of pre-created SubnetSet",
+			username:  "user-1",
+			operation: admissionv1.Update,
+			oldSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames:   &[]string{"subnet-1"},
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+				},
+			},
+			newSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames:   &[]string{"subnet-1"},
+					IPAddressType: v1alpha1.IPAddressTypeIPv6,
+				},
+			},
+			isAllowed: false,
+			msg:       "Pre-created SubnetSet spec.ipAddressType can only be set by NSX Operator",
+		},
+		{
+			name:      "Update - No change in IPAddressType is allowed",
+			username:  "user-1",
+			operation: admissionv1.Update,
+			oldSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames:   &[]string{"subnet-1"},
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+				},
+			},
+			newSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames:   &[]string{"subnet-1"},
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+				},
+			},
+			isAllowed: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := admission.Request{}
+			jsonData, err := json.Marshal(testCase.newSubnetSet)
+			assert.NoError(t, err)
+			req.Object.Raw = jsonData
+
+			oldJsonData, err := json.Marshal(testCase.oldSubnetSet)
+			assert.NoError(t, err)
+			req.OldObject.Raw = oldJsonData
+
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(validator.nsxClient.Cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
+				return &nsx.NsxVersion{
+					NodeVersion: "9.0.0.0.12345",
+				}, nil
+			})
+			patches.ApplyFunc(controllercommon.CheckAccessModeOrVisibility, func(_ client.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
+				return nil
+			})
+			defer patches.Reset()
+
+			req.Operation = testCase.operation
+			req.UserInfo.Username = testCase.username
+			response := validator.Handle(context.TODO(), req)
+			assert.Equal(t, testCase.isAllowed, response.Allowed, "Allowed mismatch for test: "+testCase.name)
+			if testCase.msg != "" {
+				assert.Contains(t, response.Result.Message, testCase.msg, "Message mismatch for test: "+testCase.name)
+			}
+		})
+	}
+}

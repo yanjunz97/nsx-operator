@@ -113,6 +113,9 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if controllercommon.IsDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be created by nsx-operator")
 		}
+		if subnetSet.Spec.SubnetNames != nil && subnetSet.Spec.IPAddressType != "" && req.UserInfo.Username != NSXOperatorSA {
+			return admission.Denied("Pre-created SubnetSet spec.ipAddressType can only be set by NSX Operator")
+		}
 		deny, err := v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
 		if err != nil {
 			if deny {
@@ -133,6 +136,10 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			log.Debug("Default SubnetSet label change detected", "oldLabels", oldSubnetSet.ObjectMeta.Labels, "newLabels", subnetSet.ObjectMeta.Labels, "username", req.UserInfo.Username)
 			return admission.Denied(fmt.Sprintf("SubnetSet label %s can only be updated by NSX Operator", common.LabelDefaultNetwork))
+		}
+		if subnetSet.Spec.SubnetNames != nil && subnetSet.Spec.IPAddressType != oldSubnetSet.Spec.IPAddressType && req.UserInfo.Username != NSXOperatorSA {
+			log.Debug("Pre-created SubnetSet spec.ipAddressType is updated by user", "oldIPAddressType", oldSubnetSet.Spec.IPAddressType, "newIPAddressType", subnetSet.Spec.IPAddressType, "username", req.UserInfo.Username)
+			return admission.Denied("Pre-created SubnetSet spec.ipAddressType can only be set by NSX Operator")
 		}
 		deny, err := v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
 		if err != nil {
