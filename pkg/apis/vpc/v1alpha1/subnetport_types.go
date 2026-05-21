@@ -70,6 +70,8 @@ type NetworkInterfaceConfig struct {
 	MACAddress string `json:"macAddress,omitempty"`
 	// DHCPDeactivatedOnSubnet indicates whether DHCP is deactivated on the Subnet.
 	DHCPDeactivatedOnSubnet bool `json:"dhcpDeactivatedOnSubnet,omitempty"`
+	// DHCPv6DeactivatedOnSubnet indicates whether DHCPv6 is deactivated on the Subnet.
+	DHCPv6DeactivatedOnSubnet bool `json:"dhcpv6DeactivatedOnSubnet,omitempty"`
 }
 
 type NetworkInterfaceIPAddress struct {

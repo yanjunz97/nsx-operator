@@ -45,50 +45,94 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	var err error
 	var addressBindings []model.PortAddressBindingEntry
 	var hasMacSpecified bool
+	var staticIpAllocationType string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
 		externalAddressBinding, err = service.buildExternalAddressBinding(o, restoreMode)
 		if err != nil {
 			return nil, err
 		}
-		// NSX only supports one IP per SubnetPort
-		if restoreMode && o.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
-			ip := strings.Split(o.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "/")[0]
-			addressBindings = []model.PortAddressBindingEntry{
-				{
-					IpAddress:  &ip,
-					MacAddress: &o.Status.NetworkInterfaceConfig.MACAddress,
-				},
+		if restoreMode && len(o.Status.NetworkInterfaceConfig.IPAddresses) > 0 {
+			// Restore mode: build address bindings from all IPAddresses in status
+			macAddress := o.Status.NetworkInterfaceConfig.MACAddress
+			for _, ipConfig := range o.Status.NetworkInterfaceConfig.IPAddresses {
+				if ipConfig.IPAddress != "" {
+					ip := strings.Split(ipConfig.IPAddress, "/")[0]
+					addressBindings = append(addressBindings, model.PortAddressBindingEntry{
+						IpAddress:  &ip,
+						MacAddress: &macAddress,
+					})
+				}
 			}
 			if len(o.Spec.AddressBindings) > 0 && len(o.Spec.AddressBindings[0].MACAddress) > 0 {
 				hasMacSpecified = true
 			}
 		} else if len(o.Spec.AddressBindings) > 0 {
-			addressBinding := model.PortAddressBindingEntry{}
-			if len(o.Spec.AddressBindings[0].IPAddress) > 0 {
-				addressBinding.IpAddress = &o.Spec.AddressBindings[0].IPAddress
+			// normal mode: process all address bindings (up to 2 for IPv4 and IPv6)
+			for _, ab := range o.Spec.AddressBindings {
+				addressBinding := model.PortAddressBindingEntry{}
+				if len(ab.IPAddress) > 0 {
+					addressBinding.IpAddress = &ab.IPAddress
+				}
+				// If StaticIPAllocation is disabled and no IP is specified, we do not specify the MAC in the NSX SubnetPort AddressBinding
+				if (util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(ab.IPAddress) > 0) &&
+					len(ab.MACAddress) > 0 {
+					addressBinding.MacAddress = &ab.MACAddress
+					hasMacSpecified = true
+				}
+				if addressBinding.IpAddress != nil || addressBinding.MacAddress != nil {
+					addressBindings = append(addressBindings, addressBinding)
+				}
 			}
-			// If StaticIPAllocation is disabled and no IP is specified, we do not specify the MAC in the NSX SubnetPort AddressBinding
-			if (util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(o.Spec.AddressBindings[0].IPAddress) > 0) &&
-				len(o.Spec.AddressBindings[0].MACAddress) > 0 {
-				addressBinding.MacAddress = &o.Spec.AddressBindings[0].MACAddress
-				hasMacSpecified = true
+		}
+		// Logic to determine StaticIPAllocationType
+		// When both interfaceIPType and staticIPAllocationType are not set
+		//     interfaceIPType -> IPv4 if subnet -> IPv4 or IPv4IPv6
+		//     interfaceIPType -> IPv6 if subnet -> IPv6
+		// When interfaceIPType is determined, and staticIPAllocationType are not set
+		//     staticIPAllocationType is the same as interfaceIPType if static ip allocation is enabled
+		//     staticIPAllocationType is None if static ip allocation is disabled
+		// TODO: Add check for DHCP/SLAAC when mixed mode Subnet is supported
+		if o.Spec.StaticIPAllocationType != "" {
+			staticIpAllocationType = controllercommon.ConvertCRStaticIPAddressTypeToNSX(o.Spec.StaticIPAllocationType)
+		} else {
+			interfaceIPType := o.Spec.InterfaceIPType
+			if interfaceIPType == "" {
+				if nsxSubnet.IpAddressType != nil && *nsxSubnet.IpAddressType == model.VpcSubnet_IP_ADDRESS_TYPE_IPV6 {
+					interfaceIPType = v1alpha1.IPAddressTypeIPv6
+				} else {
+					interfaceIPType = v1alpha1.IPAddressTypeIPv4
+				}
 			}
-			if addressBinding.IpAddress != nil || addressBinding.MacAddress != nil {
-				addressBindings = []model.PortAddressBindingEntry{addressBinding}
+			if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
+				staticIpAllocationType = controllercommon.ConvertCRIPAddressTypeToNSX(interfaceIPType)
+			} else {
+				staticIpAllocationType = controllercommon.NSXIPAddressTypeNone
 			}
 		}
 	case *corev1.Pod:
-		if restoreMode && len(o.Status.PodIP) > 0 {
-			addressBindings = []model.PortAddressBindingEntry{
-				{IpAddress: &o.Status.PodIP},
+		if restoreMode && len(o.Status.PodIPs) > 0 {
+			addressBindings = []model.PortAddressBindingEntry{}
+			for _, ip := range o.Status.PodIPs {
+				addressBindings = append(addressBindings, model.PortAddressBindingEntry{IpAddress: &ip.IP})
 			}
 			mac, ok := o.GetAnnotations()[common.AnnotationPodMAC]
 			if ok && mac != "" {
-				addressBindings[0].MacAddress = &mac
+				for i := range addressBindings {
+					addressBindings[i].MacAddress = &mac
+				}
 			} else {
 				log.Error(nil, "MAC address annotation not found in Pod", "Pod", o)
 			}
+		}
+		if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
+			if nsxSubnet.IpAddressType != nil {
+				staticIpAllocationType = *nsxSubnet.IpAddressType
+			} else {
+				staticIpAllocationType = model.VpcSubnet_IP_ADDRESS_TYPE_IPV4
+			}
+		} else {
+			staticIpAllocationType = controllercommon.NSXIPAddressTypeNone
 		}
 	}
 
@@ -181,6 +225,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		Path:                   &nsxSubnetPortPath,
 		ParentPath:             nsxSubnet.Path,
 		ExternalAddressBinding: externalAddressBinding,
+		StaticIpAllocationType: &staticIpAllocationType,
 	}
 	if appId != "" {
 		nsxSubnetPort.Attachment.AppId = &appId

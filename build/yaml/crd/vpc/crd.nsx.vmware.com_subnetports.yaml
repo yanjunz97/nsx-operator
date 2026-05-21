@@ -146,6 +146,10 @@ spec:
                     description: DHCPDeactivatedOnSubnet indicates whether DHCP is
                       deactivated on the Subnet.
                     type: boolean
+                  dhcpv6DeactivatedOnSubnet:
+                    description: DHCPv6DeactivatedOnSubnet indicates whether DHCPv6
+                      is deactivated on the Subnet.
+                    type: boolean
                   ipAddresses:
                     items:
                       properties:

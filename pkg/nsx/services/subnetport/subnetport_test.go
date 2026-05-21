@@ -251,13 +251,12 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		prepareFunc  func(service *SubnetPortService) *gomonkey.Patches
-		wantErr      bool
-		expectedDHCP bool
-		nsxSubnet    *model.VpcSubnet
-		obj          interface{}
-		restore      bool
+		name        string
+		prepareFunc func(service *SubnetPortService) *gomonkey.Patches
+		wantErr     bool
+		nsxSubnet   *model.VpcSubnet
+		obj         interface{}
+		restore     bool
 	}{
 		{
 			name: "CreateDHCPServer",
@@ -273,10 +272,9 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				})
 				return patches
 			},
-			wantErr:      false,
-			nsxSubnet:    nsxSubnet1,
-			expectedDHCP: true,
-			obj:          subnetPortCR,
+			wantErr:   false,
+			nsxSubnet: nsxSubnet1,
+			obj:       subnetPortCR,
 		},
 		{
 			name: "CreateDHCPDeactivated",
@@ -297,10 +295,9 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				})
 				return patches
 			},
-			wantErr:      false,
-			nsxSubnet:    nsxSubnet2,
-			expectedDHCP: false,
-			obj:          subnetPortCR,
+			wantErr:   false,
+			nsxSubnet: nsxSubnet2,
+			obj:       subnetPortCR,
 		},
 		{
 			name: "Update",
@@ -322,10 +319,9 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				})
 				return patches
 			},
-			wantErr:      false,
-			nsxSubnet:    nsxSubnet2,
-			expectedDHCP: false,
-			obj:          subnetPortCR,
+			wantErr:   false,
+			nsxSubnet: nsxSubnet2,
+			obj:       subnetPortCR,
 		},
 		{
 			name: "RestorePod",
@@ -346,9 +342,8 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				})
 				return patches
 			},
-			wantErr:      false,
-			nsxSubnet:    nsxSubnet2,
-			expectedDHCP: false,
+			wantErr:   false,
+			nsxSubnet: nsxSubnet2,
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "pod-1",
@@ -485,11 +480,10 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			if patches != nil {
 				defer patches.Reset()
 			}
-			_, enableDHCP, err := service.CreateOrUpdateSubnetPort(tt.obj, tt.nsxSubnet, "", nil, false, tt.restore)
+			_, err := service.CreateOrUpdateSubnetPort(tt.obj, tt.nsxSubnet, "", nil, false, tt.restore)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CreateOrUpdateSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			assert.Equal(t, tt.expectedDHCP, enableDHCP)
 			err = service.CleanupBeforeVPCDeletion(context.TODO())
 			assert.Nil(t, err)
 		})
@@ -1160,11 +1154,13 @@ func TestSubnetPortService_ListSubnetPortByStsUid(t *testing.T) {
 func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 	subnetPath := "subnet-path-1"
 	subnetId := "subnet-id-1"
+	// 1. Test standard IPv4 execution track
 	subnet1 := &model.VpcSubnet{
 		Ipv4SubnetSize: common.Int64(16),
 		IpAddresses:    []string{"10.0.0.1/28"},
 		Path:           &subnetPath,
 		Id:             &subnetId,
+		IpAddressType:  common.String(model.VpcSubnet_IP_ADDRESS_TYPE_IPV4),
 		SubnetDhcpConfig: &model.SubnetDhcpConfig{
 			Mode: common.String("DHCP_RELAY"),
 		},
@@ -1172,9 +1168,18 @@ func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 	subnetPortService := createSubnetPortService(t)
 	// Reset Subnet totalIP without SubnetPort does not influence the port count info
 	subnetPortService.ResetSubnetTotalIP(subnetPath)
+
 	ok, err := subnetPortService.AllocatePortFromSubnet(subnet1, false)
 	assert.True(t, ok)
 	require.NoError(t, err)
+
+	// Verify counter adjustments via internal Store check
+	if obj, existed := subnetPortService.SubnetPortStore.PortCountInfo.Load(subnetPath); existed {
+		info := obj.(*CountInfo)
+		assert.Equal(t, 1, info.dirtyCount)
+		assert.Equal(t, 0, info.dirtyCountIPv6)
+	}
+
 	empty := subnetPortService.IsEmptySubnet(subnetPath)
 	assert.False(t, empty)
 	subnetPortService.ReleasePortInSubnet(subnetPath)
@@ -1188,6 +1193,31 @@ func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 	ok, err = subnetPortService.AllocatePortFromSubnet(subnet1, false)
 	assert.False(t, ok)
 	assert.Nil(t, err)
+
+	// 2. Test Dual-Stack Stack counter alignment
+	subnetPortService.SubnetPortStore.PortCountInfo.Delete(subnetPath) // Clear previous tracking context
+	dualStackSubnet := &model.VpcSubnet{
+		Path:          &subnetPath,
+		Id:            &subnetId,
+		IpAddressType: common.String(model.VpcSubnet_IP_ADDRESS_TYPE_IPV4_IPV6),
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{
+			Mode: common.String("DHCP_RELAY"),
+		},
+		SubnetDhcpv6Config: &model.SubnetDhcpv6Config{
+			Mode: common.String("DHCP_RELAY"),
+		},
+		Ipv4SubnetSize: common.Int64(16),
+	}
+
+	ok, err = subnetPortService.AllocatePortFromSubnet(dualStackSubnet, false)
+	assert.True(t, ok)
+	require.NoError(t, err)
+
+	if obj, existed := subnetPortService.SubnetPortStore.PortCountInfo.Load(subnetPath); existed {
+		info := obj.(*CountInfo)
+		assert.Equal(t, 1, info.dirtyCount)
+		assert.Equal(t, 1, info.dirtyCountIPv6)
+	}
 }
 
 func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
@@ -1198,52 +1228,71 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 		IpAddresses:    []string{"10.0.0.1/28"},
 		Path:           &subnetPath,
 		Id:             &subnetId,
+		IpAddressType:  common.String(model.VpcSubnet_IP_ADDRESS_TYPE_IPV4),
 		AdvancedConfig: &model.SubnetAdvancedConfig{
-			StaticIpAllocation: &model.StaticIpAllocation{
-				Enabled: common.Bool(true)}},
-		SubnetDhcpConfig: &model.SubnetDhcpConfig{
-			Mode: common.String("DHCP_DEACTIVATED"),
+			StaticIpAllocation: &model.StaticIpAllocation{Enabled: common.Bool(true)},
 		},
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: common.String("DHCP_DEACTIVATED")},
 	}
+
+	staticIPv6Subnet := &model.VpcSubnet{
+		Path:          &subnetPath,
+		Id:            &subnetId,
+		IpAddressType: common.String(model.VpcSubnet_IP_ADDRESS_TYPE_IPV6),
+		AdvancedConfig: &model.SubnetAdvancedConfig{
+			StaticIpAllocation: &model.StaticIpAllocation{Enabled: common.Bool(true)},
+		},
+		SubnetDhcpv6Config: &model.SubnetDhcpv6Config{Mode: common.String("DHCP_DEACTIVATED")},
+	}
+
+	dualStackStaticSubnet := &model.VpcSubnet{
+		Ipv4SubnetSize: common.Int64(16),
+		IpAddresses:    []string{"10.0.0.1/28"},
+		Path:           &subnetPath,
+		Id:             &subnetId,
+		IpAddressType:  common.String(model.VpcSubnet_IP_ADDRESS_TYPE_IPV4_IPV6),
+		AdvancedConfig: &model.SubnetAdvancedConfig{
+			StaticIpAllocation: &model.StaticIpAllocation{Enabled: common.Bool(true)},
+		},
+		SubnetDhcpConfig:   &model.SubnetDhcpConfig{Mode: common.String("DHCP_DEACTIVATED")},
+		SubnetDhcpv6Config: &model.SubnetDhcpv6Config{Mode: common.String("DHCP_DEACTIVATED")},
+	}
+
 	staticSubnetWithStaticIPAllocationDisabled := &model.VpcSubnet{
 		Ipv4SubnetSize: common.Int64(16),
 		IpAddresses:    []string{"10.0.0.1/28"},
 		Path:           &subnetPath,
 		Id:             &subnetId,
 		AdvancedConfig: &model.SubnetAdvancedConfig{
-			StaticIpAllocation: &model.StaticIpAllocation{
-				Enabled: common.Bool(false)}},
-		SubnetDhcpConfig: &model.SubnetDhcpConfig{
-			Mode: common.String("DHCP_DEACTIVATED"),
+			StaticIpAllocation: &model.StaticIpAllocation{Enabled: common.Bool(false)},
 		},
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: common.String("DHCP_DEACTIVATED")},
 	}
+
 	dhcpServerSubnet := &model.VpcSubnet{
-		Ipv4SubnetSize: common.Int64(16),
-		IpAddresses:    []string{"10.0.0.1/28"},
-		Path:           &subnetPath,
-		Id:             &subnetId,
-		SubnetDhcpConfig: &model.SubnetDhcpConfig{
-			Mode: common.String("DHCP_SERVER"),
-		},
+		Ipv4SubnetSize:   common.Int64(16),
+		IpAddresses:      []string{"10.0.0.1/28"},
+		Path:             &subnetPath,
+		Id:               &subnetId,
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: common.String("DHCP_SERVER")},
 	}
+
 	dhcpRelaySubnet := &model.VpcSubnet{
-		Ipv4SubnetSize: common.Int64(16),
-		IpAddresses:    []string{"10.0.0.1/28"},
-		Path:           &subnetPath,
-		Id:             &subnetId,
-		SubnetDhcpConfig: &model.SubnetDhcpConfig{
-			Mode: common.String("DHCP_RELAY"),
-		},
+		Ipv4SubnetSize:   common.Int64(16),
+		IpAddresses:      []string{"10.0.0.1/28"},
+		Path:             &subnetPath,
+		Id:               &subnetId,
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: common.String("DHCP_RELAY")},
 	}
+
 	dhcpRelaySubnet1 := &model.VpcSubnet{
-		Ipv4SubnetSize: common.Int64(16),
-		IpAddresses:    []string{"10.0.0.1/30"},
-		Path:           &subnetPath,
-		Id:             &subnetId,
-		SubnetDhcpConfig: &model.SubnetDhcpConfig{
-			Mode: common.String("DHCP_RELAY"),
-		},
+		Ipv4SubnetSize:   common.Int64(16),
+		IpAddresses:      []string{"10.0.0.1/30"},
+		Path:             &subnetPath,
+		Id:               &subnetId,
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: common.String("DHCP_RELAY")},
 	}
+
 	tests := []struct {
 		name          string
 		subnet        *model.VpcSubnet
@@ -1256,10 +1305,9 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			name:   "Failed to get subnet static ip pool",
 			subnet: staticSubnet,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(c *fakeIPPoolClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
 					return model.IpAddressPool{}, fmt.Errorf("mock static error")
 				})
-				return patches
 			},
 			expectedValue: false,
 			expectedErr:   "mock static error",
@@ -1268,10 +1316,9 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			name:   "Failed to get subnet dhcp server config stats",
 			subnet: dhcpServerSubnet,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DhcpServerConfigStatsClient), "Get", func(c *fakeStatsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, enforcementPointPathParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DhcpServerStatistics, error) {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DhcpServerConfigStatsClient), "Get", func(_ *fakeStatsClient, _, _, _, _ string, _ *string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.DhcpServerStatistics, error) {
 					return model.DhcpServerStatistics{}, fmt.Errorf("mock dhcp error")
 				})
-				return patches
 			},
 			expectedValue: false,
 			expectedErr:   "mock dhcp error",
@@ -1280,12 +1327,11 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			name:   "Allocate SubnetPort from static Subnet failed",
 			subnet: staticSubnet,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(c *fakeIPPoolClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
 					return model.IpAddressPool{
 						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(0)},
 					}, nil
 				})
-				return patches
 			},
 			expectedValue: false,
 		},
@@ -1293,12 +1339,11 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			name:   "Allocate SubnetPort from dhcp server Subnet failed",
 			subnet: dhcpServerSubnet,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DhcpServerConfigStatsClient), "Get", func(c *fakeStatsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, enforcementPointPathParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DhcpServerStatistics, error) {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DhcpServerConfigStatsClient), "Get", func(_ *fakeStatsClient, _, _, _, _ string, _ *string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.DhcpServerStatistics, error) {
 					return model.DhcpServerStatistics{
 						IpPoolStats: []model.DhcpIpPoolUsage{{PoolSize: common.Int64(0)}},
 					}, nil
 				})
-				return patches
 			},
 			expectedValue: false,
 		},
@@ -1322,12 +1367,11 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			name:   "Allocate SubnetPort from static Subnet",
 			subnet: staticSubnet,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(c *fakeIPPoolClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
 					return model.IpAddressPool{
 						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(10)},
 					}, nil
 				})
-				return patches
 			},
 			expectedValue: true,
 		},
@@ -1335,12 +1379,11 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			name:   "Allocate SubnetPort from static shared Subnet failed",
 			subnet: staticSubnet,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(c *fakeIPPoolClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
 					return model.IpAddressPool{
 						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(10), RequestedIpAllocations: common.Int64(10)},
 					}, nil
 				})
-				return patches
 			},
 			expectedValue: false,
 			sharedSubnet:  true,
@@ -1349,12 +1392,11 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			name:   "Allocate SubnetPort from dhcp server Subnet",
 			subnet: dhcpServerSubnet,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DhcpServerConfigStatsClient), "Get", func(c *fakeStatsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, enforcementPointPathParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DhcpServerStatistics, error) {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DhcpServerConfigStatsClient), "Get", func(_ *fakeStatsClient, _, _, _, _ string, _ *string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.DhcpServerStatistics, error) {
 					return model.DhcpServerStatistics{
 						IpPoolStats: []model.DhcpIpPoolUsage{{PoolSize: common.Int64(10)}},
 					}, nil
 				})
-				return patches
 			},
 			expectedValue: true,
 		},
@@ -1365,6 +1407,72 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 				return nil
 			},
 			expectedValue: true,
+		},
+		{
+			name:   "Failed to get static-ipv6-default pool",
+			subnet: staticIPv6Subnet,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, poolId string) (model.IpAddressPool, error) {
+					if poolId == "static-ipv6-default" {
+						return model.IpAddressPool{}, fmt.Errorf("mock ipv6 static pool error")
+					}
+					return model.IpAddressPool{}, nil
+				})
+			},
+			expectedValue: false,
+			expectedErr:   "mock ipv6 static pool error",
+		},
+		{
+			name:   "Allocate SubnetPort from static IPv6 Subnet successful",
+			subnet: staticIPv6Subnet,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, poolId string) (model.IpAddressPool, error) {
+					if poolId == "static-ipv6-default" {
+						return model.IpAddressPool{
+							PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(20)},
+						}, nil
+					}
+					return model.IpAddressPool{}, nil
+				})
+			},
+			expectedValue: true,
+		},
+		{
+			name:   "Allocate Dual-Stack SubnetPort failed due to IPv4 starvation",
+			subnet: dualStackStaticSubnet,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, poolId string) (model.IpAddressPool, error) {
+					if poolId == "static-ipv4-default" {
+						return model.IpAddressPool{
+							PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(0)}, // Expose immediate limit breakdown
+						}, nil
+					}
+					return model.IpAddressPool{
+						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(100)},
+					}, nil
+				})
+			},
+			expectedValue: false,
+		},
+		{
+			name:   "Allocate Dual-Stack SubnetPort failed due to IPv6 starvation",
+			subnet: dualStackStaticSubnet,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, poolId string) (model.IpAddressPool, error) {
+					if poolId == "static-ipv4-default" {
+						return model.IpAddressPool{
+							PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(10)},
+						}, nil
+					}
+					if poolId == "static-ipv6-default" {
+						return model.IpAddressPool{
+							PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(0)}, // Starve IPv6 track explicitly
+						}, nil
+					}
+					return model.IpAddressPool{}, nil
+				})
+			},
+			expectedValue: false,
 		},
 	}
 
@@ -1391,7 +1499,6 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 					assert.Nil(t, err)
 				}
 			}
-
 		})
 	}
 }

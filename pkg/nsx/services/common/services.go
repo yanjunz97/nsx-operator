@@ -37,9 +37,7 @@ type SubnetServiceProvider interface {
 	GetSubnetByCR(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error)
 	GetNSXSubnetFromCacheOrAPI(associatedResource string, forceAPI bool) (*model.VpcSubnet, error)
 	GetSubnetStatus(subnet *model.VpcSubnet) ([]model.VpcSubnetStatus, error)
-	GetGatewayPrefixFromNSXSubnet(nsxSubnet *model.VpcSubnet) (string, int, error)
-	GetGatewayPrefixFromNSXSubnetStatus(nsxSubnet *model.VpcSubnet) (string, int, error)
-	GetGatewayPrefixOfSubnet(nsxSubnet *model.VpcSubnet) (string, int, error)
+	GetAllGatewayPrefixesOfSubnet(nsxSubnet *model.VpcSubnet) ([]GatewayPrefixInfo, error)
 }
 
 type SubnetPortServiceProvider interface {

@@ -30,6 +30,7 @@ const (
 	NSXIPAddressTypeIPv4     = "IPV4"
 	NSXIPAddressTypeIPv6     = "IPV6"
 	NSXIPAddressTypeIPv4IPv6 = "IPV4_IPV6"
+	NSXIPAddressTypeNone     = "NONE"
 )
 
 var (
@@ -635,6 +636,25 @@ func ConvertCRIPAddressTypeToNSX(crType v1alpha1.IPAddressType) string {
 		return NSXIPAddressTypeIPv6
 	case v1alpha1.IPAddressTypeIPv4IPv6:
 		return NSXIPAddressTypeIPv4IPv6
+	default:
+		log.Warn("Unknown IP address type, defaulting to IPv4", "unknownType", string(crType))
+		return NSXIPAddressTypeIPv4
+	}
+}
+
+// ConvertCRStaticIPAddressTypeToNSX converts CR StaticIPAddressType to NSX API format
+// v1alpha1 format: IPv4, IPv6, IPv4IPv6, None
+// NSX format: IPV4, IPV6, IPV4_IPV6, NONE
+func ConvertCRStaticIPAddressTypeToNSX(crType v1alpha1.StaticIPAllocationType) string {
+	switch crType {
+	case v1alpha1.StaticIPAllocationTypeIPv4:
+		return NSXIPAddressTypeIPv4
+	case v1alpha1.StaticIPAllocationTypeIPv6:
+		return NSXIPAddressTypeIPv6
+	case v1alpha1.StaticIPAllocationTypeIPv4IPv6:
+		return NSXIPAddressTypeIPv4IPv6
+	case v1alpha1.StaticIPAllocationTypeNone:
+		return NSXIPAddressTypeNone
 	default:
 		log.Warn("Unknown IP address type, defaulting to IPv4", "unknownType", string(crType))
 		return NSXIPAddressTypeIPv4

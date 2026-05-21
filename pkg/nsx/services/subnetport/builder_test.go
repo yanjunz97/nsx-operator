@@ -19,6 +19,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -71,6 +72,7 @@ func TestBuildSubnetPort(t *testing.T) {
 		{
 			// DHCP/DHCPRelay - Y; StaticIPAllocation Enabled - N;
 			// AddressBinding exists - N
+			// StaticIpAllocationType -> None (since StaticIpAllocation is disabled)
 			name: "build-NSX-port-for-subnetport",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -124,12 +126,14 @@ func TestBuildSubnetPort(t *testing.T) {
 					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeNone),
 			},
 			expectedError: nil,
 		},
 		{
 			// DHCP/DHCPRelay - Y; StaticIPAllocation Enabled - N;
 			// AddressBinding exists - Y;
+			// StaticIpAllocationType -> None
 			name: "build-NSX-port-in-subnet-dhcp-with-binding-in-nsx-mac-pool",
 			obj: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
@@ -199,12 +203,14 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("04:50:56:00:fa:00"),
 					},
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeNone),
 			},
 			expectedError: nil,
 		},
 		{
 			// DHCP/DHCPRelay - Y; StaticIPAllocation Enabled - N;
 			// AddressBinding exists - Y (restore);
+			// StaticIpAllocationType -> None
 			name: "build-NSX-port-for-restore-subnetport-dhcp",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -272,12 +278,14 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("aa:bb:cc:dd:ee:ff"),
 					},
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeNone),
 			},
 			expectedError: nil,
 		},
 		{
 			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
 			// AddressBinding exists - N (restore);
+			// StaticIpAllocationType -> converted value of IPv4 (default since subnet has no IpAddressType specified)
 			name: "build-NSX-port-for-restore-subnetport-ipam",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -350,12 +358,14 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("aa:bb:cc:dd:ee:ff"),
 					},
 				},
+				StaticIpAllocationType: common.String(controllercommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressTypeIPv4)),
 			},
 			expectedError: nil,
 		},
 		{
 			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
 			// AddressBinding exists - Y (restore);
+			// StaticIpAllocationType -> converted value of IPv4
 			name: "build-NSX-port-for-restore-subnetport-ipam-with-mac",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -436,12 +446,14 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("aa:bb:cc:dd:ee:ff"),
 					},
 				},
+				StaticIpAllocationType: common.String(controllercommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressTypeIPv4)),
 			},
 			expectedError: nil,
 		},
 		{
 			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
 			// AddressBinding exists - Y
+			// StaticIpAllocationType -> converted value of IPv4
 			name: "build-NSX-port-for-subnetport-specified-mac",
 			obj: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
@@ -511,12 +523,14 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("aa:bb:cc:dd:ee:ff"),
 					},
 				},
+				StaticIpAllocationType: common.String(controllercommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressTypeIPv4)),
 			},
 			expectedError: nil,
 		},
 		{
 			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
 			// AddressBinding exists - N (pod)
+			// StaticIpAllocationType -> model.VpcSubnet_IP_ADDRESS_TYPE_IPV4 (since nsxSubnet.IpAddressType is nil)
 			name: "build-NSX-port-for-pod",
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -588,12 +602,14 @@ func TestBuildSubnetPort(t *testing.T) {
 					AppId:             common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
 					ContextId:         common.String("fake_context_id"),
 				},
+				StaticIpAllocationType: common.String(model.VpcSubnet_IP_ADDRESS_TYPE_IPV4),
 			},
 			expectedError: nil,
 		},
 		{
 			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
 			// AddressBinding exists - N (restore pod)
+			// StaticIpAllocationType -> model.VpcSubnet_IP_ADDRESS_TYPE_IPV4
 			name: "build-NSX-port-for-restore-pod",
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -607,7 +623,9 @@ func TestBuildSubnetPort(t *testing.T) {
 					Annotations: map[string]string{common.AnnotationPodMAC: "04:50:56:00:fa:00"},
 				},
 				Status: corev1.PodStatus{
-					PodIP: "10.0.0.1",
+					PodIPs: []corev1.PodIP{
+						{IP: "10.0.0.1"},
+					},
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
@@ -674,6 +692,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("04:50:56:00:fa:00"),
 					},
 				},
+				StaticIpAllocationType: common.String(model.VpcSubnet_IP_ADDRESS_TYPE_IPV4),
 			},
 			expectedError: nil,
 			restore:       true,
@@ -681,6 +700,7 @@ func TestBuildSubnetPort(t *testing.T) {
 		{
 			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - N;
 			// AddressBinding exists - N
+			// StaticIpAllocationType -> None
 			name: "build-NSX-port-for-subnetport-no-ip",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -739,12 +759,14 @@ func TestBuildSubnetPort(t *testing.T) {
 					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeNone),
 			},
 			expectedError: nil,
 		},
 		{
 			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - N;
 			// AddressBinding exists - N
+			// StaticIpAllocationType -> None (util.NSXSubnetStaticIPAllocationEnabled returns false since advanced config is nil or incomplete)
 			name: "build-NSX-port-for-subnetport-no-ip-2",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -801,12 +823,14 @@ func TestBuildSubnetPort(t *testing.T) {
 					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeNone),
 			},
 			expectedError: nil,
 		},
 		{
 			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - N;
 			// AddressBinding exists - Y;
+			// StaticIpAllocationType -> None
 			name: "build-NSX-port-in-subnet-no-ip-but-binding-in-nsx-mac-pool",
 			obj: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
@@ -876,6 +900,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("04:50:56:00:fa:00"),
 					},
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeNone),
 			},
 			expectedError: nil,
 		},
@@ -888,8 +913,8 @@ func TestBuildSubnetPort(t *testing.T) {
 				assert.Equal(t, tt.expectedError, err)
 			} else {
 				assert.Nil(t, err)
-				// Ignore attachment id for restore mode as it is random
-				if tt.restore {
+				// Ignore dynamic attachment id for restore mode as it is random (based on timestamp)
+				if tt.restore && observedPort != nil && observedPort.Attachment != nil {
 					tt.expectedPort.Attachment.Id = observedPort.Attachment.Id
 				}
 				assert.Equal(t, tt.expectedPort, observedPort)
@@ -897,7 +922,6 @@ func TestBuildSubnetPort(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestGetAddressBindingBySubnetPort(t *testing.T) {

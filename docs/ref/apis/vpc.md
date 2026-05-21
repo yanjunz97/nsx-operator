@@ -421,6 +421,7 @@ _Appears in:_
 | `ipAddresses` _[NetworkInterfaceIPAddress](#networkinterfaceipaddress) array_ |  |  |  |
 | `macAddress` _string_ | The MAC address. |  |  |
 | `dhcpDeactivatedOnSubnet` _boolean_ | DHCPDeactivatedOnSubnet indicates whether DHCP is deactivated on the Subnet. |  |  |
+| `dhcpv6DeactivatedOnSubnet` _boolean_ | DHCPv6DeactivatedOnSubnet indicates whether DHCPv6 is deactivated on the Subnet. |  |  |
 
 
 #### NetworkInterfaceIPAddress

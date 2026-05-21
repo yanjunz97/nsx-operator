@@ -130,7 +130,7 @@ func (service *SubnetPortService) portAlreadyRealized(obj interface{}, nsxSubnet
 	return false
 }
 
-func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
+func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
 	var uid string
 	var attachmentID string
 	switch o := obj.(type) {
@@ -144,11 +144,10 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		}
 	}
 	log.Info("Creating or updating subnetport", "nsxSubnetPort.Id", uid, "nsxSubnetPath", *nsxSubnet.Path)
-	enableDHCP := util.NSXSubnetDHCPEnabled(nsxSubnet)
 	nsxSubnetPort, err := service.buildSubnetPort(obj, nsxSubnet, contextID, tags, isVmSubnetPort, restoreMode)
 	if err != nil {
 		log.Error(err, "failed to build NSX subnet port", "nsxSubnetPort.Id", uid, "*nsxSubnet.Path", *nsxSubnet.Path, "contextID", contextID)
-		return nil, false, err
+		return nil, err
 	}
 	existingSubnetPort := service.SubnetPortStore.GetByKey(*nsxSubnetPort.Id)
 	isChanged := true
@@ -166,13 +165,13 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 	}
 	subnetInfo, err := servicecommon.ParseVPCResourcePath(*nsxSubnet.Path)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if !isChanged {
 		log.Info("NSX subnet port not changed, skipping the update", "nsxSubnetPort.Id", nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 		if !restoreMode && service.portAlreadyRealized(obj, nsxSubnetPort) {
 			log.Debug("The subnet port is already realized, skip checking the state", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
-			return nil, enableDHCP, nil
+			return nil, nil
 		}
 	} else {
 		log.Info("Updating the NSX subnet port", "existingSubnetPort", existingSubnetPort, "desiredSubnetPort", nsxSubnetPort)
@@ -180,11 +179,11 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to create or update subnet port", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
-			return nil, false, err
+			return nil, err
 		}
 		err = service.SubnetPortStore.Apply(nsxSubnetPort)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		if existingSubnetPort != nil {
 			log.Info("Updated NSX subnet port", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
@@ -199,23 +198,23 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		} else {
 			log.Error(err, "check and update NSX subnet port state failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 		}
-		return nil, false, err
+		return nil, err
 	}
 	createdNSXSubnetPort, err := service.NSXClient.PortClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id)
 	if err != nil {
 		log.Error(err, "check and update NSX subnet port failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
-		return nil, false, err
+		return nil, err
 	}
 	err = service.SubnetPortStore.Apply(&createdNSXSubnetPort)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if isChanged {
 		log.Info("Successfully created or updated subnetport", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPortState", nsxSubnetPortState)
 	} else {
 		log.Info("Subnetport already existed", "subnetport", *nsxSubnetPort.Id, "nsxSubnetPortState", nsxSubnetPortState)
 	}
-	return nsxSubnetPortState, enableDHCP, nil
+	return nsxSubnetPortState, nil
 }
 
 func mergeSubnetPortAddressBinding(existingAddressBinding []model.PortAddressBindingEntry, desiredAddressBinding []model.PortAddressBindingEntry) []model.PortAddressBindingEntry {
@@ -461,23 +460,14 @@ func (service *SubnetPortService) ListSubnetPortByStsUid(ns string, stsUid strin
 // AllocatePortFromSubnet checks the number of SubnetPorts on the Subnet.
 // If the Subnet has capacity for the new SubnetPorts, it will increase
 // the number of SubnetPort under creation and return true.
+// For dual-stack subnets, both IPv4 and IPv6 capacity must be available.
 func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool) (bool, error) {
-	dhcpMode := "DHCP_DEACTIVATED"
 	subnetInfo, _ := servicecommon.ParseVPCResourcePath(*subnet.Path)
-	if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil {
-		dhcpMode = *subnet.SubnetDhcpConfig.Mode
-	}
-	// For DHCP Deactivated mode Subnet, if staticIpAllocation enable:false, skip check IP count
-	// and always return true
-	staticIpAllocationEnabled := false
-	if dhcpMode == "DHCP_DEACTIVATED" {
-		if subnet.AdvancedConfig != nil && subnet.AdvancedConfig.StaticIpAllocation != nil && subnet.AdvancedConfig.StaticIpAllocation.Enabled != nil {
-			staticIpAllocationEnabled = *subnet.AdvancedConfig.StaticIpAllocation.Enabled
-		}
-		if !staticIpAllocationEnabled {
-			// for staticIpAllocation enable:false case, it can create SubnetPort and skip check the IP count
-			return true, nil
-		}
+
+	// Determine subnet IP address type
+	subnetIPAddressType := model.VpcSubnet_IP_ADDRESS_TYPE_IPV4
+	if subnet.IpAddressType != nil {
+		subnetIPAddressType = *subnet.IpAddressType
 	}
 
 	info := &CountInfo{}
@@ -487,10 +477,64 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 	info.lock.Lock()
 	defer info.lock.Unlock()
 
+	// Handle IPv4 capacity check
+	if subnetIPAddressType != model.VpcSubnet_IP_ADDRESS_TYPE_IPV6 {
+		hasCapacity, err := service.checkIPv4Capacity(subnet, sharedSubnet, info, ok, subnetInfo)
+		if !hasCapacity {
+			return false, err
+		}
+	}
+
+	// Handle IPv6 capacity check
+	if subnetIPAddressType != model.VpcSubnet_IP_ADDRESS_TYPE_IPV4 {
+		hasCapacity, err := service.checkIPv6Capacity(subnet, sharedSubnet, info, ok, subnetInfo)
+		if !hasCapacity {
+			return false, err
+		}
+	}
+
+	// Increment counters for successful allocation
+	switch subnetIPAddressType {
+	case model.VpcSubnet_IP_ADDRESS_TYPE_IPV4_IPV6:
+		info.dirtyCount += 1
+		info.dirtyCountIPv6 += 1
+		log.Trace("Allocate Subnetport to dual-stack Subnet", "Subnet", *subnet.Path, "dirtyPortCount", info.dirtyCount, "dirtyPortCountIPv6", info.dirtyCountIPv6)
+	case model.VpcSubnet_IP_ADDRESS_TYPE_IPV6:
+		info.dirtyCountIPv6 += 1
+		log.Trace("Allocate Subnetport to IPv6 Subnet", "Subnet", *subnet.Path, "dirtyPortCountIPv6", info.dirtyCountIPv6)
+	case model.VpcSubnet_IP_ADDRESS_TYPE_IPV4:
+		info.dirtyCount += 1
+		log.Trace("Allocate Subnetport to IPv4 Subnet", "Subnet", *subnet.Path, "dirtyPortCount", info.dirtyCount)
+	default:
+		return false, fmt.Errorf("Unsupported subnetIPAddressType: %v", subnetIPAddressType)
+	}
+	return true, nil
+}
+
+// checkIPv4Capacity checks if the subnet has available IPv4 capacity
+func (service *SubnetPortService) checkIPv4Capacity(subnet *model.VpcSubnet, sharedSubnet bool, info *CountInfo, existedEntry bool, subnetInfo servicecommon.VPCResourceInfo) (bool, error) {
+	dhcpMode := model.SubnetDhcpConfig_MODE_DEACTIVATED
+	if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil {
+		dhcpMode = *subnet.SubnetDhcpConfig.Mode
+	}
+
+	// For DHCP Deactivated mode Subnet, if staticIpAllocation enable:false, skip check IP count
+	// and always return true
+	staticIpAllocationEnabled := false
+	if dhcpMode == model.SubnetDhcpConfig_MODE_DEACTIVATED {
+		if subnet.AdvancedConfig != nil && subnet.AdvancedConfig.StaticIpAllocation != nil && subnet.AdvancedConfig.StaticIpAllocation.Enabled != nil {
+			staticIpAllocationEnabled = *subnet.AdvancedConfig.StaticIpAllocation.Enabled
+		}
+		if !staticIpAllocationEnabled {
+			// for staticIpAllocation enable:false case, it can create SubnetPort and skip check the IP count
+			return true, nil
+		}
+	}
+
 	var allocatedIPNumber int
 	// For DHCP Server mode Subnet, get total IPs from DHCP IP Pool from NSX each time
 	// since user might update reservedIPRanges for the subnet and it impacts the DHCP Pool size
-	if dhcpMode == "DHCP_SERVER" {
+	if dhcpMode == model.SubnetDhcpConfig_MODE_SERVER {
 		dhcpServerStats, err := service.NSXClient.DhcpServerConfigStatsClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, nil, nil, nil, nil, nil, nil, nil)
 		if err != nil {
 			log.Error(err, "Failed to get Subnet dhcp-server-config stats", "Subnet", *subnet.Path)
@@ -507,7 +551,7 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 	// expect the totalIP is updated from NSX ip pool API
 	// For shared Subnet, user can create IPReservation and SubnetPort from NSX side.
 	// We call NSX ip pool API to for latest total ip and requested ip.
-	if (!ok || info.totalIP == 0 || sharedSubnet) && dhcpMode == "DHCP_DEACTIVATED" {
+	if (!existedEntry || info.totalIP == 0 || sharedSubnet) && dhcpMode == model.SubnetDhcpConfig_MODE_DEACTIVATED {
 		// For DHCP Deactivated mode Subnet, get total IPs from IP pool static-ipv4-default
 		// only get Subnet total IPs from static IP Pool if staticIpAllocation enabled
 		if staticIpAllocationEnabled {
@@ -524,7 +568,8 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 			}
 		}
 	}
-	if !ok && dhcpMode == "DHCP_RELAY" {
+
+	if !existedEntry && dhcpMode == model.SubnetDhcpConfig_MODE_RELAY {
 		// For DHCP Relay mode Subnet, assume 4 reserved IPs
 		var totalIP int
 		if subnet.Ipv4SubnetSize != nil {
@@ -553,14 +598,62 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 	if sharedSubnet {
 		existingPortCount = max(existingPortCount, allocatedIPNumber)
 	}
-	// Number of SubnetPorts on the Subnet includes the SubnetPorts under creation
-	// and the SubnetPorts already created
-	if info.dirtyCount+existingPortCount < info.totalIP {
-		info.dirtyCount += 1
-		log.Trace("Allocate Subnetport to Subnet", "Subnet", *subnet.Path, "dirtyPortCount", info.dirtyCount, "existingPortCount", existingPortCount)
+
+	return info.dirtyCount+existingPortCount < info.totalIP, nil
+}
+
+// checkIPv6Capacity checks if the subnet has available IPv6 capacity
+func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sharedSubnet bool, info *CountInfo, isNewEntry bool, subnetInfo servicecommon.VPCResourceInfo) (bool, error) {
+	dhcpv6Mode := model.SubnetDhcpv6Config_MODE_DEACTIVATED
+	if subnet.SubnetDhcpv6Config != nil && subnet.SubnetDhcpv6Config.Mode != nil {
+		dhcpv6Mode = *subnet.SubnetDhcpv6Config.Mode
+	}
+
+	// For DHCP Deactivated mode Subnet, if staticIpAllocation enable:false, skip check IP count
+	staticIpAllocationEnabled := false
+	if dhcpv6Mode == model.SubnetDhcpv6Config_MODE_DEACTIVATED {
+		if subnet.AdvancedConfig != nil && subnet.AdvancedConfig.StaticIpAllocation != nil && subnet.AdvancedConfig.StaticIpAllocation.Enabled != nil {
+			staticIpAllocationEnabled = *subnet.AdvancedConfig.StaticIpAllocation.Enabled
+		}
+		if !staticIpAllocationEnabled {
+			return true, nil
+		}
+	}
+
+	var allocatedIPNumberIPv6 int
+	if dhcpv6Mode == model.SubnetDhcpv6Config_MODE_SERVER || dhcpv6Mode == model.SubnetDhcpv6Config_MODE_RELAY || dhcpv6Mode == model.SubnetDhcpv6Config_MODE_SERVER_STATELESS {
+		// TODO: Revisit when DHCPv6 is fully supported in NSX and DHCPv6 server statistics are available.
+		// For now, always allow allocation unconditionally for DHCPv6 mode.
+		log.Info("DHCPv6 mode detected; allowing allocation (DHCPv6 support pending)", "Subnet", *subnet.Path)
 		return true, nil
 	}
-	return false, nil
+
+	if (!isNewEntry || info.totalIPv6 == 0 || sharedSubnet) && dhcpv6Mode == model.SubnetDhcpv6Config_MODE_DEACTIVATED {
+		if staticIpAllocationEnabled {
+			staticIPPoolIPv6, err := service.NSXClient.IPPoolClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, "static-ipv6-default")
+			if err != nil {
+				log.Error(err, "Failed to get Subnet static IP Pool static-ipv6-default", "Subnet", *subnet.Path)
+				return false, err
+			}
+			if staticIPPoolIPv6.PoolUsage != nil && staticIPPoolIPv6.PoolUsage.TotalIps != nil {
+				info.totalIPv6 = int(*staticIPPoolIPv6.PoolUsage.TotalIps)
+			}
+			if sharedSubnet && staticIPPoolIPv6.PoolUsage != nil && staticIPPoolIPv6.PoolUsage.RequestedIpAllocations != nil {
+				allocatedIPNumberIPv6 = int(*staticIPPoolIPv6.PoolUsage.RequestedIpAllocations)
+			}
+		}
+	}
+
+	if time.Since(info.exhaustedCheckTime) < IPReleaseTime {
+		return false, nil
+	}
+
+	existingPortCount := len(service.GetPortsOfSubnet(*subnet.Path))
+	if sharedSubnet {
+		existingPortCount = max(existingPortCount, allocatedIPNumberIPv6)
+	}
+
+	return info.dirtyCountIPv6+existingPortCount < info.totalIPv6, nil
 }
 
 func (service *SubnetPortService) updateExhaustedSubnet(path string) {
@@ -600,7 +693,7 @@ func (service *SubnetPortService) IsEmptySubnet(path string) bool {
 	obj, ok := service.SubnetPortStore.PortCountInfo.Load(path)
 	if ok {
 		info := obj.(*CountInfo)
-		portCount += info.dirtyCount
+		portCount += info.dirtyCount + info.dirtyCountIPv6
 	}
 	return portCount < 1
 }

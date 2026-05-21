@@ -167,7 +167,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to create NSX IPAddressAllocation for AddressBinding restore", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
 		}
-		nsxSubnetPortState, enableDHCP, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode)
+		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			if nsxutil.IsRealizeStateError(err) {
@@ -191,13 +191,34 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 						Gateway: "",
 					},
 				},
-				DHCPDeactivatedOnSubnet: !enableDHCP,
+				DHCPDeactivatedOnSubnet:   !util.NSXSubnetDHCPEnabled(nsxSubnet),
+				DHCPv6DeactivatedOnSubnet: !util.NSXSubnetDHCPv6Enabled(nsxSubnet),
+			}
+			// Append one more ipaddress for dual stack SubnetPort
+			if subnetPort.Spec.InterfaceIPType == v1alpha1.IPAddressTypeIPv4IPv6 {
+				subnetPort.Status.NetworkInterfaceConfig.IPAddresses = append(
+					subnetPort.Status.NetworkInterfaceConfig.IPAddresses,
+					v1alpha1.NetworkInterfaceIPAddress{Gateway: ""},
+				)
 			}
 			if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(subnetPort.Spec.AddressBindings) > 0 {
 				if len(nsxSubnetPortState.RealizedBindings) > 0 {
-					subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
-					// The MAC address is updated here when the SubnetPort's StaticIPAllocation is enabled or spec.AddressBindings is specific. For the other cases, the MAC address will be updated in the VIF polling.
-					subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
+					// Process all realized bindings and populate IPAddresses array
+					// RealizedBindings can contain up to 2 entries (IPv4 and IPv6)
+					// The MAC address is updated here when the SubnetPort's StaticIPAllocation
+					// is enabled or spec.AddressBindings is specific. For the other cases, the MAC
+					// address will be updated in the VIF polling.
+					macAddress := ""
+					for i, binding := range nsxSubnetPortState.RealizedBindings {
+						if binding.Binding != nil && binding.Binding.IpAddress != nil {
+							if macAddress == "" && binding.Binding.MacAddress != nil {
+								macAddress = strings.Trim(*binding.Binding.MacAddress, "\"")
+							}
+							subnetPort.Status.NetworkInterfaceConfig.IPAddresses[i].IPAddress = *binding.Binding.IpAddress
+						}
+					}
+					// MAC address is consistent across all bindings, set it once
+					subnetPort.Status.NetworkInterfaceConfig.MACAddress = macAddress
 				} else if !util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && len(subnetPort.Spec.AddressBindings) > 0 {
 					// If StaticIPAllocation is disabled, propagate the MAC from spec.addressBinding to status
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = subnetPort.Spec.AddressBindings[0].MACAddress
@@ -211,9 +232,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				if subnetPort.Status.NetworkInterfaceConfig.MACAddress == "" && old_status.NetworkInterfaceConfig.MACAddress != "" {
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = old_status.NetworkInterfaceConfig.MACAddress
 				}
-				if subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress == "" && old_status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
-					subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = old_status.NetworkInterfaceConfig.IPAddresses[0].IPAddress
-				}
+				subnetPort.Status.NetworkInterfaceConfig.IPAddresses = old_status.NetworkInterfaceConfig.IPAddresses
 			}
 			err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnet)
 			if err != nil {
@@ -924,19 +943,50 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 }
 
 func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
-	gateway, prefix, err := r.SubnetService.GetGatewayPrefixOfSubnet(nsxSubnet)
+	subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID = *nsxSubnet.RealizationId
+	// Get all gateways from the subnet (may be IPv4, IPv6, or both for dual-stack)
+	gatewaysWithPrefixes, err := r.SubnetService.GetAllGatewayPrefixesOfSubnet(nsxSubnet)
 	if err != nil {
 		return err
 	}
-	// For now, we have an assumption that one subnetport only have one IP address
-	if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress) > 0 && prefix > 0 {
-		subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress += fmt.Sprintf("/%d", prefix)
-	}
 	// The gateway can be empty for L2_Only Subnet which has the vlan_connection without gateway
-	if len(gateway) > 0 {
-		subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway = gateway
+	if len(gatewaysWithPrefixes) == 0 {
+		return nil
 	}
-	subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID = *nsxSubnet.RealizationId
+
+	// Process each IP address entry
+	for i, ipConfig := range subnetPort.Status.NetworkInterfaceConfig.IPAddresses {
+		var isIPv6 bool
+
+		if len(ipConfig.IPAddress) > 0 {
+			// If IP address is present, determine family dynamically
+			isIPv6 = util.IsIPv6(ipConfig.IPAddress)
+		} else {
+			// For empty IP configurations (e.g., DHCP), fall back to index-based positional inference:
+			// Index 0 matches the first gateway family, Index 1 matches the second gateway family
+			if i < len(gatewaysWithPrefixes) {
+				isIPv6 = util.IsIPv6(gatewaysWithPrefixes[i].Gateway)
+			} else {
+				continue
+			}
+		}
+
+		// Find matching gateway by IP family
+		for _, gwInfo := range gatewaysWithPrefixes {
+			isGatewayIPv6 := util.IsIPv6(gwInfo.Gateway)
+			if isIPv6 != isGatewayIPv6 {
+				continue
+			}
+
+			// Only append the prefix notation if the IP address is actually present
+			if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[i].IPAddress) > 0 {
+				subnetPort.Status.NetworkInterfaceConfig.IPAddresses[i].IPAddress += fmt.Sprintf("/%d", gwInfo.Prefix)
+			}
+
+			subnetPort.Status.NetworkInterfaceConfig.IPAddresses[i].Gateway = gwInfo.Gateway
+			break
+		}
+	}
 	return nil
 }
 

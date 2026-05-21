@@ -118,16 +118,8 @@ func (m *MockSubnetServiceProvider) GetSubnetStatus(subnet *model.VpcSubnet) ([]
 	return nil, nil
 }
 
-func (m *MockSubnetServiceProvider) GetGatewayPrefixOfSubnet(nsxSubnet *model.VpcSubnet) (string, int, error) {
-	return "", 0, nil
-}
-
-func (m *MockSubnetServiceProvider) GetGatewayPrefixFromNSXSubnet(nsxSubnet *model.VpcSubnet) (string, int, error) {
-	return "", 0, nil
-}
-
-func (m *MockSubnetServiceProvider) GetGatewayPrefixFromNSXSubnetStatus(nsxSubnet *model.VpcSubnet) (string, int, error) {
-	return "", 0, nil
+func (m *MockSubnetServiceProvider) GetAllGatewayPrefixesOfSubnet(nsxSubnet *model.VpcSubnet) ([]common.GatewayPrefixInfo, error) {
+	return nil, nil
 }
 
 func (m *MockSubnetServiceProvider) GetAllVIFs() ([]mpmodel.VirtualNetworkInterface, error) {
