@@ -225,6 +225,11 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 		log.Error(err, "Failed to allocate Subnet")
 		return "", nil, nil, err
 	}
+	// TODO: remove this after NSX support PrivateTGW access mode for IPv6 or Dual stack subnets
+	// We block the subnet creation here to avoid creating infinite ip pool that cannot be deleted in NSX
+	if (subnetSet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv4IPv6 || subnetSet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv6) && subnetSet.Spec.AccessMode == v1alpha1.AccessMode(v1alpha1.AccessModeProject) {
+		return "", nil, nil, fmt.Errorf("IPv6 or Dual stack subnets support for PrivateTGW access mode is not implemented yet")
+	}
 	nsxSubnet, err := subnetService.CreateOrUpdateSubnet(subnetSet, vpcInfoList[0], tags)
 	if err != nil {
 		return "", nil, nil, err
