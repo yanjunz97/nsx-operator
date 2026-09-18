@@ -1010,6 +1010,12 @@ func SubnetMixedMode(t *testing.T) {
 			},
 		},
 	}
+	defer func() {
+		for _, portName := range []string{"mixed-static-port", "mixed-dhcp-port", "mixed-multi-ip-port"} {
+			_ = testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetTestNamespace).Delete(context.TODO(), portName, v1.DeleteOptions{})
+		}
+		_ = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), mixed.Name, v1.DeleteOptions{})
+	}()
 	// Create the mixed-mode Subnet. If NSX does not support combined static IP
 	// allocation + DHCP (error 508128), the reconciler sets Ready=False without
 	// requeuing. Detect this via the condition message and skip rather than fail,
@@ -1160,34 +1166,20 @@ func SubnetMixedMode(t *testing.T) {
 	// Case 4 (negative): poolRanges overlapping reservedIPRanges — the webhook
 	// now admits this; NSX rejects it and the reconciler sets Ready=False without
 	// requeuing (error code in 508100s or 660000–660011 range).
-	overlap := &v1alpha1.Subnet{
-		ObjectMeta: v1.ObjectMeta{Name: "subnet-mixed-overlap", Namespace: subnetTestNamespace},
-		Spec: v1alpha1.SubnetSpec{
-			IPAddresses: []string{subnetCIDRStr},
-			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
-				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
-				DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
-					ReservedIPRanges: []string{fmt.Sprintf("%s-%s", reservedStart.String(), reservedEnd.String())},
-				},
-			},
-			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-				StaticIPAllocation: v1alpha1.StaticIPAllocation{
-					Enabled:    common.Bool(true),
-					PoolRanges: []string{fmt.Sprintf("%s-%s", reservedStart.String(), reservedEnd.String())},
-				},
-			},
-		},
-	}
-	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), overlap, v1.CreateOptions{})
-	if err != nil && errors.IsAlreadyExists(err) {
-		err = nil
-	}
+	mixedLatest, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), mixed.Name, v1.GetOptions{})
+	require.NoError(t, err)
+	savedValidRanges := mixedLatest.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges
+	mixedLatest.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges = append(
+		mixedLatest.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges,
+		fmt.Sprintf("%s-%s", reservedStart.String(), reservedEnd.String()),
+	)
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), mixedLatest, v1.UpdateOptions{})
 	require.NoError(t, err, "poolRanges overlapping reservedIPRanges must be admitted by webhook")
 	{
 		deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
 		defer deadlineCancel()
 		err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (bool, error) {
-			s, getErr := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(ctx, overlap.Name, v1.GetOptions{})
+			s, getErr := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(ctx, mixed.Name, v1.GetOptions{})
 			if getErr != nil {
 				return false, getErr
 			}
@@ -1200,6 +1192,13 @@ func SubnetMixedMode(t *testing.T) {
 		})
 		require.NoError(t, err, "timed out waiting for overlap Subnet to reach Ready=False")
 	}
+	// Restore valid pool ranges
+	mixedLatest, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), mixed.Name, v1.GetOptions{})
+	require.NoError(t, err)
+	mixedLatest.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges = savedValidRanges
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), mixedLatest, v1.UpdateOptions{})
+	require.NoError(t, err)
+	assureSubnet(t, subnetTestNamespace, mixed.Name, "")
 
 	// Case 5: single-IP string form — "X.X.X.X" (no dash) is the canonical NSX
 	// format for a one-address range. Previously only representable as
@@ -1208,62 +1207,40 @@ func SubnetMixedMode(t *testing.T) {
 	singleIP := make(net.IP, len(ip))
 	copy(singleIP, ip)
 	singleIP[3] += 10
-	singleIPSubnet := &v1alpha1.Subnet{
-		ObjectMeta: v1.ObjectMeta{Name: "subnet-mixed-singleip", Namespace: subnetTestNamespace},
-		Spec: v1alpha1.SubnetSpec{
-			IPAddresses: []string{subnetCIDRStr},
-			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
-				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
-			},
-			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-				StaticIPAllocation: v1alpha1.StaticIPAllocation{
-					Enabled:    common.Bool(true),
-					PoolRanges: []string{singleIP.String()},
-				},
-			},
-		},
-	}
-	singleIPCreated, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), singleIPSubnet, v1.CreateOptions{})
-	if err != nil && errors.IsAlreadyExists(err) {
-		singleIPCreated, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), singleIPSubnet.Name, v1.GetOptions{})
-	}
+
+	mixedLatest, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), mixed.Name, v1.GetOptions{})
+	require.NoError(t, err)
+	mixedLatest.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges = append(
+		mixedLatest.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges,
+		singleIP.String(),
+	)
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), mixedLatest, v1.UpdateOptions{})
 	require.NoError(t, err, "single-IP pool range string must be accepted by webhook")
-	require.Len(t, singleIPCreated.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges, 1)
+
 	// Wait for the subnet to be realized, then confirm the pool range round-trips
 	// back from NSX containing the original single IP.
-	singleIPRealized := assureSubnet(t, subnetTestNamespace, singleIPSubnet.Name, "")
-	require.Len(t, singleIPRealized.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges, 1,
-		"single-IP poolRange must survive NSX round-trip as a one-element list")
-	require.Contains(t, singleIPRealized.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges[0], singleIP.String(),
+	singleIPRealized := assureSubnet(t, subnetTestNamespace, mixed.Name, "")
+	require.Len(t, singleIPRealized.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges, 3,
+		"single-IP poolRange must survive NSX round-trip as a three-element list")
+	require.Contains(t, strings.Join(singleIPRealized.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges, ","), singleIP.String(),
 		"single-IP poolRange must contain the original IP after NSX round-trip")
 
-	// Case 6: malformed poolRange string — admitted by the webhook, rejected by
+	// Case 6 (negative): malformed poolRange string — admitted by the webhook, rejected by
 	// NSX; the reconciler sets Ready=False without requeuing.
-	malformed := &v1alpha1.Subnet{
-		ObjectMeta: v1.ObjectMeta{Name: "subnet-mixed-malformed", Namespace: subnetTestNamespace},
-		Spec: v1alpha1.SubnetSpec{
-			IPAddresses: []string{subnetCIDRStr},
-			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
-				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
-			},
-			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-				StaticIPAllocation: v1alpha1.StaticIPAllocation{
-					Enabled:    common.Bool(true),
-					PoolRanges: []string{"not-an-ip"},
-				},
-			},
-		},
-	}
-	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), malformed, v1.CreateOptions{})
-	if err != nil && errors.IsAlreadyExists(err) {
-		err = nil
-	}
+	mixedLatest, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), mixed.Name, v1.GetOptions{})
+	require.NoError(t, err)
+	savedValidRangesWithSingleIP := mixedLatest.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges
+	mixedLatest.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges = append(
+		mixedLatest.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges,
+		"not-an-ip",
+	)
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), mixedLatest, v1.UpdateOptions{})
 	require.NoError(t, err, "malformed poolRange string must be admitted by webhook")
 	{
 		deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
 		defer deadlineCancel()
 		err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (bool, error) {
-			s, getErr := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(ctx, malformed.Name, v1.GetOptions{})
+			s, getErr := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(ctx, mixed.Name, v1.GetOptions{})
 			if getErr != nil {
 				return false, getErr
 			}
@@ -1276,44 +1253,41 @@ func SubnetMixedMode(t *testing.T) {
 		})
 		require.NoError(t, err, "timed out waiting for malformed Subnet to reach Ready=False")
 	}
+	// Restore valid pool ranges
+	mixedLatest, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), mixed.Name, v1.GetOptions{})
+	require.NoError(t, err)
+	mixedLatest.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges = savedValidRangesWithSingleIP
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), mixedLatest, v1.UpdateOptions{})
+	require.NoError(t, err)
+	assureSubnet(t, subnetTestNamespace, mixed.Name, "")
+
+	// Clean up SubnetPorts before testing DHCPDeactivated mode on the subnet
+	for _, portName := range []string{staticPort.Name, dhcpPort.Name, multiIPPort.Name} {
+		_ = testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetTestNamespace).Delete(context.TODO(), portName, v1.DeleteOptions{})
+	}
+	for _, portName := range []string{staticPort.Name, dhcpPort.Name, multiIPPort.Name} {
+		_ = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 30*time.Second, false, func(ctx context.Context) (bool, error) {
+			_, getErr := testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetTestNamespace).Get(ctx, portName, v1.GetOptions{})
+			return getErr != nil && errors.IsNotFound(getErr), nil
+		})
+	}
 
 	// Case 7: DHCPDeactivated + poolRanges — NSX behavior is not yet confirmed.
 	// The test accepts either outcome: Ready=True (NSX supports the combination)
 	// or Ready=False (NSX rejects it, controller stops requeuing via the
 	// 660000–660011 guard). It fails only if no terminal condition is reached,
 	// which would indicate an infinite requeue loop.
-	deactivatedRangeStart := make(net.IP, len(ip))
-	copy(deactivatedRangeStart, ip)
-	deactivatedRangeStart[3] += 40
-	deactivatedRangeEnd := make(net.IP, len(ip))
-	copy(deactivatedRangeEnd, ip)
-	deactivatedRangeEnd[3] += 42
-
-	dhcpDeactivated := &v1alpha1.Subnet{
-		ObjectMeta: v1.ObjectMeta{Name: "subnet-mixed-deactivated", Namespace: subnetTestNamespace},
-		Spec: v1alpha1.SubnetSpec{
-			IPAddresses: []string{subnetCIDRStr},
-			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
-				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
-			},
-			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-				StaticIPAllocation: v1alpha1.StaticIPAllocation{
-					Enabled:    common.Bool(true),
-					PoolRanges: []string{fmt.Sprintf("%s-%s", deactivatedRangeStart.String(), deactivatedRangeEnd.String())},
-				},
-			},
-		},
-	}
-	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), dhcpDeactivated, v1.CreateOptions{})
-	if err != nil && errors.IsAlreadyExists(err) {
-		err = nil
-	}
+	mixedLatest, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), mixed.Name, v1.GetOptions{})
+	require.NoError(t, err)
+	mixedLatest.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+	mixedLatest.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges = nil
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), mixedLatest, v1.UpdateOptions{})
 	require.NoError(t, err, "DHCPDeactivated + poolRanges must be admitted by webhook")
 	{
 		deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
 		defer deadlineCancel()
 		err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (bool, error) {
-			s, getErr := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(ctx, dhcpDeactivated.Name, v1.GetOptions{})
+			s, getErr := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(ctx, mixed.Name, v1.GetOptions{})
 			if getErr != nil {
 				return false, getErr
 			}
@@ -1335,6 +1309,8 @@ func SubnetMixedMode(t *testing.T) {
 		})
 		require.NoError(t, err, "timed out waiting for DHCPDeactivated+poolRanges Subnet to reach a terminal Ready state")
 	}
+
+	_ = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), mixed.Name, v1.DeleteOptions{})
 }
 
 func fetchSubnetPortBySubnetPortUID(t *testing.T, subnetPortUID string) *model.VpcSubnetPort {
