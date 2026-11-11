@@ -1645,13 +1645,16 @@ func TestBuildSubnetPortIPOnlyAllocateAddresses(t *testing.T) {
 		}
 	}
 
-	// IP falls within the static IP pool -> BOTH.
+	// An empty binding requests another pool IP with the MAC allocated by NSX.
 	spInPool := newSP("a", v1alpha1.StaticIPAllocationTypeIPv4)
+	spInPool.Spec.AddressBindings = append(spInPool.Spec.AddressBindings, v1alpha1.PortAddressBinding{})
 	port, err := service.buildSubnetPort(spInPool, staticSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
 	assert.Nil(t, err)
 	assert.Equal(t, "BOTH", *port.Attachment.AllocateAddresses)
-	if assert.Len(t, port.AddressBindings, 1) {
+	if assert.Len(t, port.AddressBindings, 2) {
 		assert.Equal(t, "10.0.0.5", *port.AddressBindings[0].IpAddress)
+		assert.Nil(t, port.AddressBindings[1].IpAddress)
+		assert.Nil(t, port.AddressBindings[1].MacAddress)
 	}
 
 	// IP is not in any static IP pool (staticIPAllocationType None) -> NONE.
@@ -1727,6 +1730,16 @@ func TestBuildSubnetPortMACVersionGating(t *testing.T) {
 	if assert.Len(t, port.AddressBindings, 1) {
 		assert.Equal(t, "aa:bb:cc:dd:ee:ff", *port.AddressBindings[0].MacAddress)
 	}
+
+	// A single empty binding with no static address allocation must retain the
+	// legacy request shape so DHCP SubnetPorts continue to realize successfully.
+	spEmptyNone := spMACOnly.DeepCopy()
+	spEmptyNone.Spec.AddressBindings = []v1alpha1.PortAddressBinding{{}}
+	spEmptyNone.Spec.StaticIPAllocationType = v1alpha1.StaticIPAllocationTypeNone
+	port, err = service.buildSubnetPort(spEmptyNone, dhcpSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
+	assert.Nil(t, err)
+	assert.Equal(t, "NONE", *port.Attachment.AllocateAddresses)
+	assert.Empty(t, port.AddressBindings)
 }
 
 // TestBuildSubnetPortMultipleSameMACBindings verifies spec 2.4.3 (Blueprint VM

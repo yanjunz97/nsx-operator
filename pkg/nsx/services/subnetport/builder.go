@@ -110,7 +110,11 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 					macAddress := o.Status.NetworkInterfaceConfig.MACAddress
 					addressBinding.MacAddress = &macAddress
 				}
-				if addressBinding.IpAddress != nil || addressBinding.MacAddress != nil {
+				// On NSX 9.1, empty addressbinding is not supported with error "Invalid binding address '' specified on segment port."
+				// On NSX 9.2+, an empty addressbinding is supported when allocate_address
+				// is BOTH or MAC_POOL. NSX Operator pass the user setting to NSX and depends on
+				// NSX to determine if the empty addressbinding is supported.
+				if addressBinding.IpAddress != nil || addressBinding.MacAddress != nil || service.NSXClient.NSXCheckVersion(nsx.IPv6) {
 					addressBindings = append(addressBindings, addressBinding)
 				}
 			}
@@ -256,7 +260,12 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			nsxSubnetPort.Attachment.ContextId = &contextID
 		}
 	}
-	if len(addressBindings) > 0 {
+	// A single empty binding with allocateAddresses NONE cannot be realized on DHCP subnets.
+	// Keep the previous behavior by leaving AddressBindings unset in that case.
+	// TODO: This can be handled after MAC_POOL is supported.
+	omitSingleEmptyBinding := len(addressBindings) == 1 && allocateAddresses == "NONE" &&
+		addressBindings[0].IpAddress == nil && addressBindings[0].MacAddress == nil
+	if len(addressBindings) > 0 && !omitSingleEmptyBinding {
 		nsxSubnetPort.AddressBindings = addressBindings
 	}
 	return nsxSubnetPort, nil
